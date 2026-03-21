@@ -1,6 +1,6 @@
 [package]
 name = "tomino"
-version = "0.1.2"
+version = "0.1.3"
 description = "Tomino — Suivi patrimonial"
 authors = ["Tomino"]
 license = ""
@@ -13,7 +13,7 @@ rust-version = "1.60"
 tauri-build = { version = "1.5", features = [] }
 
 [dependencies]
-tauri = { version = "1.6", features = ["shell-open", "window-all", "updater"] }
+tauri = { version = "1.6", features = ["shell-open", "window-all", "updater", "shell-sidecar"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.11", features = ["blocking"] }
