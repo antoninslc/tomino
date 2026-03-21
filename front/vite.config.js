@@ -6,7 +6,7 @@ export default defineConfig({
     jsxImportSource: 'react'
   },
   build: {
-    outDir: '../dist',
+    outDir: 'dist',
     emptyOutDir: true,
   },
   server: {
