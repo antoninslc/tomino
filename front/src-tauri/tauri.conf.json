@@ -7,13 +7,18 @@
   },
   "package": {
     "productName": "Tomino",
-    "version": "0.3.0"
+    "version": "0.1.0"
   },
   "tauri": {
     "allowlist": {
       "all": false,
-      "shell": { "all": false, "open": true },
-      "window": { "all": true }
+      "shell": {
+        "all": false,
+        "open": true
+      },
+      "window": {
+        "all": true
+      }
     },
     "bundle": {
       "active": true,
@@ -25,7 +30,10 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "targets": ["nsis", "msi"],
+      "targets": [
+        "nsis",
+        "msi"
+      ],
       "windows": {
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
@@ -38,7 +46,7 @@
     "updater": {
       "active": true,
       "dialog": false,
-      "pubkey": "RWRL9iOkW4OJTjJP9B5uS3l3UwQczugyypB+6YYrdoOCDGdd8ujlLFHX",
+      "pubkey": "RWQFE+EZHfPIP5H6FemLwkH7AsCHDr31gou+dtaaJp6lvhxJ8n+PTyQ1",
       "endpoints": [
         "https://github.com/TON_USERNAME/tomino/releases/latest/download/latest.json"
       ],
