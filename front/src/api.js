@@ -1,12 +1,4 @@
-const IS_TAURI = typeof window !== 'undefined' && (
-  window.__TAURI__ !== undefined ||
-  window.__TAURI_INTERNALS__ !== undefined ||
-  window.location.protocol === 'tauri:' ||
-  window.location.hostname === 'tauri.localhost' ||
-  window.location.hostname === 'localhost' && window.location.port !== '5173'
-)
-
-const BASE = IS_TAURI
+const BASE = import.meta.env.PROD
   ? 'http://127.0.0.1:5000/api'
   : '/api'
 

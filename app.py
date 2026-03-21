@@ -1,4 +1,4 @@
-﻿from flask import Flask, request, jsonify, Response, stream_with_context, g
+from flask import Flask, request, jsonify, Response, stream_with_context, g
 from flask_cors import CORS
 import database as db
 import prices
@@ -33,7 +33,13 @@ SERVE_FRONTEND = FRONT_DIST.is_dir() and (FRONT_DIST / "index.html").exists()
 
 app = Flask(__name__)
 app.secret_key = "patrimoine-secret-2024"
-CORS(app, origins=["http://localhost:5173"])
+CORS(app, origins=[
+    "http://localhost:5173", 
+    "https://tauri.localhost", 
+    "http://tauri.localhost", 
+    "tauri://localhost", 
+    "asset://localhost"
+])
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
 _COURS_STATUS_LOCK = threading.Lock()
