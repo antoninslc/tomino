@@ -1,0 +1,61 @@
+name: Release Tomino
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: front/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workdir: front/src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: front
+
+      - name: Build and release Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        with:
+          projectPath: front
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Tomino ${{ github.ref_name }}'
+          releaseBody: |
+            ## Tomino ${{ github.ref_name }}
+
+            ### Installation
+            Télécharger `TominoSetup_*_x64-setup.exe` ci-dessous.
+
+            ### Mise à jour automatique
+            Si vous avez déjà Tomino installé, la mise à jour
+            sera proposée automatiquement au prochain démarrage.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true

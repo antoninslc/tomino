@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Données locales
+patrimoine.db
+prix_cache.json
+*.bak
+*.tomino-backup
+.tomino-backups/
+
+# Secrets — NE JAMAIS COMMITER
+.env
+*.key
+*.key.pub
+~/.tauri/
+front/~/
+
+# Builds compilés
+dist/
+front/dist/
+front/src-tauri/target/
+
+# Logs
+*.log
+build_err.log
+
+# VS Code / éditeurs
+tempCodeRunnerFile.py
+tempCodeRunnerFile.bat
+retry_cargo.bat
+.vscode/
+
+# Divers
+front/.gitkeep

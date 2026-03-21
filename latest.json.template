@@ -1,0 +1,11 @@
+{
+  "version": "VERSION_A_REMPLACER",
+  "notes": "Notes de version",
+  "pub_date": "DATE_ISO_A_REMPLACER",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "SIGNATURE_DU_SIG_A_COLLER",
+      "url": "https://github.com/TON_USERNAME/tomino/releases/download/vVERSION/TominoSetup_VERSION_x64-setup.exe"
+    }
+  }
+}

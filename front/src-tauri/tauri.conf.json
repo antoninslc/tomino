@@ -1,0 +1,61 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "Tomino",
+    "version": "0.3.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": { "all": false, "open": true },
+      "window": { "all": true }
+    },
+    "bundle": {
+      "active": true,
+      "identifier": "app.tomino.desktop",
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "targets": ["nsis", "msi"],
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": ""
+      }
+    },
+    "security": {
+      "csp": null
+    },
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "pubkey": "RWRL9iOkW4OJTjJP9B5uS3l3UwQczugyypB+6YYrdoOCDGdd8ujlLFHX",
+      "endpoints": [
+        "https://github.com/TON_USERNAME/tomino/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "resizable": true,
+        "title": "Tomino",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ]
+  }
+}
