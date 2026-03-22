@@ -1,11 +1,20 @@
 import sqlite3
 import os
+import sys
 import json
 import datetime
 import uuid
 import threading
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patrimoine.db")
+def get_data_dir():
+    if getattr(sys, 'frozen', False):
+        app_data = os.getenv('APPDATA', os.path.expanduser('~'))
+        data_dir = os.path.join(app_data, 'Tomino')
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
+    return os.path.dirname(os.path.abspath(__file__))
+
+DB_PATH = os.path.join(get_data_dir(), "patrimoine.db")
 
 ENVELOPPES = {
     "PEA":    {"label": "PEA",     "icon": "📈", "color": "#4ade80"},

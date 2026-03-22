@@ -395,6 +395,17 @@ export default function Settings() {
   const [toastMsg, setToastMsg] = useState('')
   const [confirmCompte, setConfirmCompte] = useState(null)
   const [blurAmounts, setBlurAmounts] = useState(() => localStorage.getItem(BLUR_KEY) === '1')
+  const [appVersion, setAppVersion] = useState('')
+
+  useEffect(() => {
+    if (window.__TAURI__) {
+      import('@tauri-apps/api/app')
+        .then(m => m.getVersion().then(setAppVersion).catch(() => {}))
+        .catch(() => {})
+    } else {
+      setAppVersion('Web')
+    }
+  }, [])
 
   useEffect(() => {
     if (!confirmCompte) return
@@ -3115,6 +3126,10 @@ export default function Settings() {
               </button>
             </div>
           )}
+
+          <div style={{ textAlign: 'center', marginTop: 40, paddingBottom: 24, fontSize: '.75rem', color: 'var(--text-3)', letterSpacing: '.3px' }}>
+            Tomino v{appVersion || '...'}
+          </div>
         </div>
       )}
 

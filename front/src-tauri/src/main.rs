@@ -1,24 +1,16 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::process::Command;
 use std::thread;
 use std::time::Duration;
+use tauri::api::process::Command;
 
 fn start_flask_server() {
     thread::spawn(|| {
-        // Cherche python dans le même dossier que l'exe (production)
-        // ou dans le PATH (développement)
-        let python = if cfg!(target_os = "windows") {
-            "python"
-        } else {
-            "python3"
-        };
-
-        let _ = Command::new(python)
-            .arg("app.py")
-            .current_dir(get_app_dir())
-            .spawn();
+        let _ = Command::new_sidecar("binaries/tomino-backend")
+            .expect("Échec de l'initialisation du sidecar")
+            .spawn()
+            .expect("Échec du lancement du sidecar tomino-backend");
 
         // Attendre que Flask soit prêt
         for _ in 0..30 {
@@ -30,24 +22,6 @@ fn start_flask_server() {
             }
         }
     });
-}
-
-fn get_app_dir() -> std::path::PathBuf {
-    // En production : dossier à côté de l'exe
-    // En dev : dossier racine du projet
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let candidate = parent.join("../../../");
-            if candidate.join("app.py").exists() {
-                return candidate.canonicalize().unwrap_or(candidate);
-            }
-            // Production : app.py à côté de l'exe
-            if parent.join("app.py").exists() {
-                return parent.to_path_buf();
-            }
-        }
-    }
-    std::env::current_dir().unwrap_or_default()
 }
 
 fn main() {

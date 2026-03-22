@@ -3,7 +3,20 @@ set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 echo === Build Tomino Desktop ===
 echo.
 
-echo [1/3] Build React...
+echo [1/3] Build Backend (PyInstaller)...
+pip install pyinstaller
+pip install -r requirements.txt
+pyinstaller --onefile --noconsole --name tomino-backend-x86_64-pc-windows-msvc app.py
+if not exist "front\src-tauri\binaries" mkdir "front\src-tauri\binaries"
+move /Y "dist\tomino-backend-x86_64-pc-windows-msvc.exe" "front\src-tauri\binaries\"
+if errorlevel 1 (
+    echo ERREUR: Build Backend echoue
+    exit /b 1
+)
+echo Build Backend OK
+echo.
+
+echo [2/3] Build React...
 cd front
 call npm run build
 if errorlevel 1 (
@@ -12,6 +25,7 @@ if errorlevel 1 (
 )
 cd ..
 echo Build React OK
+echo.
 
 echo [2/3] Build Tauri...
 cd front

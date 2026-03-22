@@ -23,7 +23,16 @@ CACHE_TTL = 300  # 5 minutes
 INFO_TTL = 86400  # 24 heures
 MAX_PARALLEL_FETCH = 6
 
-CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prix_cache.json")
+def get_data_dir():
+    import sys
+    if getattr(sys, 'frozen', False):
+        app_data = os.getenv('APPDATA', os.path.expanduser('~'))
+        data_dir = os.path.join(app_data, 'Tomino')
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
+    return os.path.dirname(os.path.abspath(__file__))
+
+CACHE_FILE = os.path.join(get_data_dir(), "prix_cache.json")
 
 
 def _configure_session(session: requests.Session) -> requests.Session:

@@ -20,8 +20,11 @@ front/~/
 
 # Builds compilés
 dist/
+build/
+*.spec
 front/dist/
 front/src-tauri/target/
+front/src-tauri/binaries/
 
 # Logs
 *.log
