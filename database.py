@@ -34,10 +34,11 @@ DEFAULT_PROFIL = {
     "secteurs_exclus": [],
     "pays_exclus": [],
     "benchmark": "CW8.PA",
-    "tier": "free",          # "free" | "tier1" | "tomino_plus"
+    "tier": "free",          # "free" | "tomino_plus"
+    "is_demo": 0,
 }
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 SCHEMA_MIN_IMPORT_VERSION = 1
 
 _SYNC_ACTOR = threading.local()
@@ -65,10 +66,8 @@ def _utc_sql_now() -> str:
 
 def _normalize_tier(value: str) -> str:
     tier = str(value or "free").strip().lower()
-    if tier in ("tier2", "tomino_plus", "tomino+", "plus"):
+    if tier in ("tier1", "tier2", "tomino_plus", "tomino+", "plus"):
         return "tomino_plus"
-    if tier in ("free", "tier1"):
-        return tier
     return "free"
 
 
@@ -521,13 +520,20 @@ def init_db():
             secteurs_exclus TEXT DEFAULT '[]',
             pays_exclus TEXT DEFAULT '[]',
             benchmark TEXT DEFAULT 'CW8.PA',
-            tier TEXT DEFAULT 'free'
+            tier TEXT DEFAULT 'free',
+            is_demo INTEGER DEFAULT 0
         )
     """)
 
     # Migration : ajout colonne tier si absente (bases existantes)
     try:
         c.execute("ALTER TABLE profil ADD COLUMN tier TEXT DEFAULT 'free'")
+    except Exception:
+        pass
+
+    # Migration : ajout colonne is_demo si absente
+    try:
+        c.execute("ALTER TABLE profil ADD COLUMN is_demo INTEGER DEFAULT 0")
     except Exception:
         pass
 
@@ -2577,3 +2583,62 @@ def desactiver_alerte(id):
     _record_sync_upsert(conn, "alertes", int(id))
     conn.commit()
     conn.close()
+
+
+def reset_all_data():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('DELETE FROM actifs')
+    try:
+        c.execute('DELETE FROM mouvements')
+    except Exception:
+        pass
+    c.execute('DELETE FROM historique')
+    c.execute('DELETE FROM livrets')
+    c.execute('DELETE FROM assurance_vie')
+    c.execute('DELETE FROM comptes_etrangers')
+    c.execute('DELETE FROM dividendes')
+    c.execute('DELETE FROM alertes')
+    c.execute('''
+        UPDATE profil 
+        SET horizon='long', risque='equilibre', objectif='croissance', strategie='mixte',
+            style_ia='detaille', ton_ia='informel', secteurs_exclus='[]', pays_exclus='[]',
+            benchmark='CW8.PA', tier='free', is_demo=0
+        WHERE id=1
+    ''')
+    _record_sync_upsert(conn, 'profil', 1)
+    conn.commit()
+    conn.close()
+
+def inject_demo_data():
+    reset_all_data()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('UPDATE profil SET is_demo=1 WHERE id=1')
+    if c.rowcount == 0:
+        c.execute('INSERT INTO profil (id, is_demo) VALUES (1, 1)')
+    _record_sync_upsert(conn, 'profil', 1)
+    
+    c.execute('''INSERT INTO actifs (enveloppe, nom, ticker, quantite, pru, type, date_achat) VALUES ('PEA', 'LVMH', 'MC.PA', 10, 600.0, 'action', '2023-01-10')''')
+    _record_sync_upsert(conn, 'actifs', c.lastrowid)
+    c.execute('''INSERT INTO actifs (enveloppe, nom, ticker, quantite, pru, type, date_achat) VALUES ('PEA', 'Air Liquide', 'AI.PA', 25, 140.0, 'action', '2023-05-20')''')
+    _record_sync_upsert(conn, 'actifs', c.lastrowid)
+    c.execute('''INSERT INTO actifs (enveloppe, nom, ticker, quantite, pru, type, date_achat) VALUES ('PEA', 'Amundi MSCI World', 'CW8.PA', 50, 400.0, 'etf', '2022-11-05')''')
+    _record_sync_upsert(conn, 'actifs', c.lastrowid)
+    
+    c.execute('''INSERT INTO livrets (nom, capital, taux) VALUES ('Livret A', 22950.0, 3.0)''')
+    _record_sync_upsert(conn, 'livrets', c.lastrowid)
+    c.execute('''INSERT INTO livrets (nom, capital, taux) VALUES ('LDDS', 12000.0, 3.0)''')
+    _record_sync_upsert(conn, 'livrets', c.lastrowid)
+    
+    date_base = datetime.datetime.now() - datetime.timedelta(days=30)
+    for i in range(31):
+        d = (date_base + datetime.timedelta(days=i)).strftime('%Y-%m-%d')
+        val_pea = 25000 + (100 * i) + (i % 3) * 50
+        val_livrets = 34950
+        c.execute('INSERT INTO historique (date, valeur_totale, valeur_pea, valeur_cto, valeur_or, valeur_livrets) VALUES (?, ?, ?, ?, ?, ?)',
+                  (d, val_pea + val_livrets, val_pea, 0, 0, val_livrets))
+                  
+    conn.commit()
+    conn.close()
+

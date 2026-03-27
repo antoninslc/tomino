@@ -71,8 +71,7 @@ FREE_ALERTS_MAX = int(os.getenv("TOMINO_FREE_ALERTS_MAX", "3"))
 BILLING_PROVIDER = str(os.getenv("TOMINO_BILLING_PROVIDER", "local") or "local").strip().lower()
 STRIPE_SECRET_KEY = str(os.getenv("STRIPE_SECRET_KEY", "") or "").strip()
 STRIPE_WEBHOOK_SECRET = str(os.getenv("STRIPE_WEBHOOK_SECRET", "") or "").strip()
-STRIPE_PRICE_TIER1 = str(os.getenv("STRIPE_PRICE_TIER1", "") or "").strip()
-STRIPE_PRICE_TIER2 = str(os.getenv("STRIPE_PRICE_TIER2", "") or "").strip()
+STRIPE_PRICE_PLUS = str(os.getenv("STRIPE_PRICE_TIER2", "") or os.getenv("STRIPE_PRICE_PLUS", "")).strip()
 STRIPE_CHECKOUT_SUCCESS_URL = str(
     os.getenv("STRIPE_CHECKOUT_SUCCESS_URL", "http://localhost:5173/settings/sync?billing=success") or ""
 ).strip()
@@ -153,8 +152,7 @@ def _week_window_paris(now: datetime.datetime | None = None) -> tuple[datetime.d
 
 
 _MAX_ANALYSE_CALLS_PAR_TIER: dict[str, int | None] = {
-    "free": 3,
-    "tier1": None,
+    "free":        3,
     "tomino_plus": None,
 }
 
@@ -418,25 +416,18 @@ def _auth_optional_user_session():
 
 def _auth_normalize_tier(value: str) -> str:
     tier = str(value or "free").strip().lower()
-    if tier in ("tier2", "tomino_plus", "tomino+", "plus"):
+    if tier in ("tier1", "tier2", "tomino_plus", "tomino+", "plus"):
         return "tomino_plus"
-    if tier in ("free", "tier1"):
-        return tier
     return "free"
 
 
 def _auth_tier_label(tier: str) -> str:
-    safe_tier = _auth_normalize_tier(tier)
-    if safe_tier == "tier1":
-        return "Tomino +"
-    if safe_tier == "tomino_plus":
-        return "Tomino +"
-    return "Gratuit"
+    return "Tomino +" if _auth_normalize_tier(tier) == "tomino_plus" else "Gratuit"
 
 
 def _auth_is_tomino_plus(user) -> bool:
     tier = _auth_normalize_tier((user or {}).get("tier") if isinstance(user, dict) else "free")
-    return tier in ("tier1", "tomino_plus")
+    return tier == "tomino_plus"
 
 
 def _auth_require_tomino_plus(user):
@@ -455,12 +446,7 @@ def _billing_provider() -> str:
 
 
 def _billing_price_id_for_tier(tier: str) -> str:
-    safe_tier = _auth_normalize_tier(tier)
-    if safe_tier == "tier1":
-        return STRIPE_PRICE_TIER1
-    if safe_tier == "tomino_plus":
-        return STRIPE_PRICE_TIER2
-    return ""
+    return STRIPE_PRICE_PLUS if _auth_normalize_tier(tier) == "tomino_plus" else ""
 
 
 def _billing_is_stripe_ready() -> bool:
@@ -468,7 +454,7 @@ def _billing_is_stripe_ready() -> bool:
         _billing_provider() == "stripe"
         and bool(STRIPE_SECRET_KEY)
         and bool(STRIPE_WEBHOOK_SECRET)
-        and bool(STRIPE_PRICE_TIER2)
+        and bool(STRIPE_PRICE_PLUS)
     )
 
 
@@ -487,7 +473,7 @@ def _billing_build_subscription_payload(user: dict, override_tier: str | None = 
     return {
         "tier": tier,
         "label": _auth_tier_label(tier),
-        "tomino_plus": tier in ("tier1", "tomino_plus"),
+        "tomino_plus": tier == "tomino_plus",
         "status": str((sub or {}).get("status") or "active"),
         "provider": str((sub or {}).get("provider") or _billing_provider()),
         "provider_customer_id": str((sub or {}).get("provider_customer_id") or "") or None,
@@ -2059,7 +2045,7 @@ def api_auth_register():
     email = str(payload.get("email") or "").strip().lower()
     password = str(payload.get("password") or "")
     requested_tier = _auth_normalize_tier(payload.get("tier"))
-    if _billing_provider() == "stripe" and requested_tier in ("tier1", "tomino_plus"):
+    if _billing_provider() == "stripe" and requested_tier == "tomino_plus":
         # In Stripe mode, paid tiers must come from checkout/webhook confirmation.
         requested_tier = "free"
     device_id = _auth_normalize_device_id(payload.get("device_id"))
@@ -2585,20 +2571,6 @@ def api_plans():
                 ],
             },
             {
-                "tier": "tier1",
-                "label": "Tomino +",
-                "tomino_plus": True,
-                "price_eur_month": 4.99,
-                "alerts_max": None,
-                "legacy": True,
-                "price_configured": bool(_billing_price_id_for_tier("tier1")) if provider == "stripe" else True,
-                "features": [
-                    "Synchronisation cloud multi-appareils",
-                    "Alertes illimitées",
-                    "IA avancée",
-                ],
-            },
-            {
                 "tier": "tomino_plus",
                 "label": "Tomino + — 4,99 EUR/mois",
                 "tomino_plus": True,
@@ -2652,7 +2624,7 @@ def api_billing_change_plan():
             "subscription": _billing_build_subscription_payload(user, override_tier=current_tier),
         })
 
-    if provider == "stripe" and requested_tier in ("tier1", "tomino_plus"):
+    if provider == "stripe" and requested_tier == "tomino_plus":
         return jsonify({
             "ok": False,
             "payment_required": True,
@@ -2670,7 +2642,7 @@ def api_billing_change_plan():
         int(user.get("id") or 0),
         provider=provider,
         tier=requested_tier,
-        status="active" if requested_tier in ("tier1", "tomino_plus") else "free",
+        status="active" if requested_tier == "tomino_plus" else "free",
         metadata={"source": "manual_change_plan"},
     )
 
@@ -2696,7 +2668,7 @@ def api_billing_checkout_session():
 
     payload = request.get_json(silent=True) or {}
     requested_tier = _auth_normalize_tier(payload.get("tier"))
-    if requested_tier not in ("tier1", "tomino_plus"):
+    if requested_tier != "tomino_plus":
         return jsonify({"ok": False, "erreur": "Tier invalide pour le checkout Stripe."}), 400
 
     price_id = _billing_price_id_for_tier(requested_tier)
@@ -2821,7 +2793,7 @@ def api_billing_webhook():
             metadata = data_object.get("metadata") or {}
             user_id = int(metadata.get("user_id") or data_object.get("client_reference_id") or 0)
             tier = _auth_normalize_tier(metadata.get("tier"))
-            if user_id > 0 and tier in ("tier1", "tomino_plus"):
+            if user_id > 0 and tier == "tomino_plus":
                 user = db.update_user_tier(user_id, tier)
                 if user:
                     current_period_end = None
@@ -4240,7 +4212,8 @@ def api_chat():
         return jsonify({"ok": False, "erreur": _quota_error_message(quota), "quota": quota}), 429
 
     resume = calcul_resume()
-    reponse = grok.chat(messages, resume, tier=tier)
+    actifs = [a for a in _enrichir_avec_tri(db.get_actifs()) if float(a.get("quantite") or 0) > 0]
+    reponse = grok.chat(messages, resume, actifs=actifs, tier=tier)
     if str(reponse or "").startswith("[ERREUR]"):
         return jsonify({
             "ok": False,
@@ -4274,12 +4247,13 @@ def api_chat_stream():
         return jsonify({"ok": False, "erreur": _quota_error_message(quota), "quota": quota}), 429
 
     resume = calcul_resume()
+    actifs = [a for a in _enrichir_avec_tri(db.get_actifs()) if float(a.get("quantite") or 0) > 0]
     input_text = json.dumps({"messages": messages, "resume": resume}, ensure_ascii=False)
 
     @stream_with_context
     def generate():
         chunks = []
-        for chunk in grok.chat_stream(messages, resume, tier=tier):
+        for chunk in grok.chat_stream(messages, resume, actifs=actifs, tier=tier):
             chunks.append(chunk)
             yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"
         full_output = "".join(chunks)

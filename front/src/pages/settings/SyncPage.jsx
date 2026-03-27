@@ -25,7 +25,7 @@ export default function SyncPage({ ctx }) {
   const [isRenamingDevice, setIsRenamingDevice] = React.useState(false)
   const [newDeviceName, setNewDeviceName] = React.useState('')
 
-  const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || ['tier1', 'tomino_plus', 'tier2'].includes(String(syncAuthUser?.tier || '').toLowerCase()))
+  const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || String(syncAuthUser?.tier || '').toLowerCase() === 'tomino_plus')
   const currentDevice = (syncDevices || []).find((d) => d.device_id === syncCurrentDeviceId) || null
   const otherDevices = (syncDevices || []).filter((d) => d.device_id && d.device_id !== syncCurrentDeviceId && !d.revoked_at)
 

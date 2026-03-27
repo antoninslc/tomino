@@ -336,8 +336,8 @@ export default function Analyse() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
               {[
                 { type: 'performance', title: 'Performance', sub: 'Analyse des gains et pertes' },
-                { type: 'arbitrage', title: 'Arbitrage', sub: 'Reequilibrages suggeres' },
-                { type: 'risques', title: 'Risques', sub: 'Concentration & vulnerabilites' }
+                { type: 'arbitrage', title: 'Arbitrage', sub: 'Rééquilibrages suggérés' },
+                { type: 'risques', title: 'Risques', sub: 'Concentration & vulnérabilités' }
               ].map((item) => {
                 const dejaFaite = Boolean(analysesDuJour[item.type])
                 return (
@@ -374,7 +374,7 @@ export default function Analyse() {
               ) : quota?.blocked ? (
                 <>Quota IA hebdo atteint · reset dans {weeklyCountdown || '...'}</>
               ) : dejaFaiteSelected ? (
-                <>Deja analyse · disponible dans {countdown}</>
+                <>Déjà analysé · disponible dans {countdown}</>
               ) : (
                 <>Analyser · {LABELS[typeAnalyse]} →</>
               )}

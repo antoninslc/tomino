@@ -124,8 +124,8 @@ class AuthApiTests(unittest.TestCase):
         plans = plans_payload.get("plans") or []
         tiers = {str(item.get("tier") or "") for item in plans}
         self.assertIn("free", tiers)
-        self.assertIn("tier1", tiers)
         self.assertIn("tomino_plus", tiers)
+        self.assertNotIn("tier1", tiers)
         self.assertIn(plans_payload.get("provider"), ("local", "stripe"))
 
         register_response = self.client.post(

@@ -751,6 +751,20 @@ a {
 	100% { background-position: -120% 0; }
 }
 
+@keyframes blink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0; }
+}
+
+.chat-streaming::after {
+	content: '▍';
+	display: inline-block;
+	margin-left: 2px;
+	color: var(--accent);
+	animation: blink .7s step-end infinite;
+	vertical-align: baseline;
+}
+
 .chat-ai p {
 	margin: .4em 0;
 }

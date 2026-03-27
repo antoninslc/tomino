@@ -3,9 +3,8 @@ Module d'analyse patrimoniale via l'API Grok (xAI).
 Compatible format OpenAI — utilise requests, pas de SDK.
 
 Niveaux de prompt (tier) :
-  "free"   → ultra-compact  : résumé minimal, réponse très courte
-  "tier1"  → compact        : bon équilibre profondeur / crédits (défaut payant)
-    "tomino_plus"  → complet  : analyse riche, limites explicitées
+  "free"        → ultra-compact : résumé minimal, réponse très courte
+  "tomino_plus" → complet       : analyse riche, limites explicitées
 """
 
 import json
@@ -24,21 +23,24 @@ _MAX_CONTINUATIONS = 3
 
 # Tokens max par tier (system + user + réponse)
 _MAX_TOKENS_PAR_TIER = {
-    "free":  512,
-    "tier1": 800,
+    "free":        512,
     "tomino_plus": 1200,
 }
 _CHAT_MAX_TOKENS_PAR_TIER = {
-    "free":  400,
-    "tier1": 700,
+    "free":        400,
     "tomino_plus": 1000,
 }
 
 # Nombre de messages chat conservés par tier
 _CHAT_HISTORIQUE_PAR_TIER = {
-    "free":  4,
-    "tier1": 8,
+    "free":        4,
     "tomino_plus": 12,
+}
+
+# Nombre de positions affichées dans le contexte chat par tier
+_CHAT_MAX_POSITIONS_PAR_TIER = {
+    "free":        5,
+    "tomino_plus": None,  # Toutes les positions
 }
 
 # ── SOCLES SYSTÈME PAR TIER ──────────────────────────────
@@ -57,24 +59,7 @@ _SOCLE_FREE = (
     "pas d'un conseil financier."
 )
 
-_SOCLE_TIER1 = (
-    "Tu es Tomino Intelligence, un assistant d'analyse patrimoniale.\n"
-    "Tu apportes un regard extérieur, critique, pédagogique et factuel sur le patrimoine décrit, "
-    "uniquement à partir des données fournies.\n"
-    "Tu n'es pas conseiller financier. Tu ne fournis ni conseil personnalisé en investissement, "
-    "ni ordre d'achat, ni ordre de vente.\n"
-    "Réponds en français de manière claire, structurée et utile.\n"
-    "Identifie les points forts, fragilités, concentrations, incohérences éventuelles "
-    "et questions à approfondir.\n"
-    "N'invente aucune donnée. Signale explicitement les limites ou données manquantes.\n"
-    "Adapte la forme au style et au ton demandés par l'utilisateur.\n"
-    "Utilise un langage non prescriptif : parle de vigilance, hypothèses, "
-    "pistes d'analyse et éléments à examiner.\n"
-    "Termine par une phrase courte rappelant qu'il s'agit d'un regard extérieur "
-    "et non d'un conseil financier."
-)
-
-_SOCLE_TIER2 = (
+_SOCLE_PLUS = (
     "Tu es Tomino Intelligence, un assistant d'analyse patrimoniale.\n"
     "Tu apportes un regard extérieur, critique, pédagogique, structuré et factuel "
     "sur le patrimoine décrit, uniquement à partir des données fournies.\n"
@@ -99,7 +84,7 @@ _SOCLE_TIER2 = (
     "sur le patrimoine et non d'un conseil financier."
 )
 
-_SOCLES = {"free": _SOCLE_FREE, "tier1": _SOCLE_TIER1, "tomino_plus": _SOCLE_TIER2}
+_SOCLES = {"free": _SOCLE_FREE, "tomino_plus": _SOCLE_PLUS}
 
 # ── MODULES MÉTIER PAR TYPE D'ANALYSE ────────────────────
 
@@ -131,15 +116,16 @@ _MODULES_METIER = {
     "risques":     _MODULE_RISQUES,
 }
 
-# Tiers autorisés (ordre de priorité décroissante)
-TIERS_VALIDES = ("free", "tier1", "tomino_plus")
+# Tiers valides
+TIERS_VALIDES = ("free", "tomino_plus")
 
 
 def _tier_valide(tier: str) -> str:
     """Normalise et valide le tier. Replie sur 'free' si inconnu."""
-    if tier == "tier2":
+    t = str(tier or "free").strip().lower()
+    if t in ("tier1", "tier2", "tomino_plus", "tomino+", "plus"):
         return "tomino_plus"
-    return tier if tier in TIERS_VALIDES else "free"
+    return "free"
 
 
 def _profil_prompt_block(profil: dict) -> str:
@@ -231,7 +217,7 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
         type_analyse : "performance" | "arbitrage" | "risques"
         resume       : dict retourné par calcul_resume()
         actifs       : liste enrichie retournée par prices.enrichir_actifs()
-        tier         : "free" | "tier1" | "tomino_plus" (alias entrant: "tier2")
+        tier         : "free" | "tomino_plus"
 
     Returns:
         Texte de l'analyse, ou message d'erreur préfixé par "[ERREUR]".
@@ -293,8 +279,11 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
             })
 
         reponse = "\n\n".join(morceaux).strip()
-    except requests.exceptions.HTTPError:
-        reponse = f"[ERREUR] Réponse HTTP {r.status_code} de l'API xAI : {r.text[:300]}"
+    except requests.exceptions.HTTPError as exc:
+        r_ref = exc.response
+        code = r_ref.status_code if r_ref is not None else '?'
+        body = r_ref.text[:300] if r_ref is not None else ''
+        reponse = f"[ERREUR] Réponse HTTP {code} de l'API xAI : {body}"
     except requests.exceptions.RequestException as e:
         reponse = f"[ERREUR] Impossible de joindre l'API xAI : {e}"
     except (KeyError, IndexError, ValueError) as e:
@@ -305,9 +294,9 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
     return reponse
 
 
-def _construire_prompt_chat(resume: dict, profil: dict) -> str:
+def _construire_prompt_chat(resume: dict, profil: dict, actifs: list | None = None, tier: str = "free") -> str:
     """Prompt système pour le chat conversationnel."""
-    contexte = _construire_contexte_chat_compact(resume, profil)
+    contexte = _construire_contexte_chat_compact(resume, profil, actifs=actifs, tier=tier)
     return (
         "Tu es Tomino Intelligence, un assistant d'analyse patrimoniale conversationnel.\n"
         "Tu apportes un regard extérieur, pédagogique et factuel sur le patrimoine décrit.\n"
@@ -324,14 +313,19 @@ def _construire_prompt_chat(resume: dict, profil: dict) -> str:
     )
 
 
-def _construire_contexte_chat_compact(resume: dict, profil: dict) -> str:
-    """Contexte compact pour le chat afin de limiter les tokens envoyés à chaque tour."""
+def _construire_contexte_chat_compact(resume: dict, profil: dict, actifs: list | None = None, tier: str = "free") -> str:
+    """Contexte compact pour le chat afin de limiter les tokens envoyés à chaque tour.
+
+    Les positions sont triées par valeur décroissante et limitées selon le tier :
+      free        → top 5
+      tomino_plus → toutes
+    """
     secteurs = profil.get("secteurs_exclus") or []
     pays = profil.get("pays_exclus") or []
     secteurs_txt = ", ".join(str(s) for s in secteurs) if isinstance(secteurs, list) and secteurs else "Aucun"
     pays_txt = ", ".join(str(p) for p in pays) if isinstance(pays, list) and pays else "Aucun"
 
-    return "\n".join([
+    lignes = [
         "=== SNAPSHOT COMPACT ===",
         f"Total: {float(resume.get('total') or 0):.2f} € | Investi: {float(resume.get('total_investi') or 0):.2f} € | PV: {float(resume.get('pv_total') or 0):+.2f} € ({float(resume.get('pv_pct') or 0):+.2f}%)",
         f"PEA: {float((resume.get('pea') or {}).get('valeur_actuelle') or 0):.2f} € ({float((resume.get('pea') or {}).get('pct') or 0):.1f}%)",
@@ -344,17 +338,39 @@ def _construire_contexte_chat_compact(resume: dict, profil: dict) -> str:
         f"Exclusions secteurs: {secteurs_txt}",
         f"Exclusions pays: {pays_txt}",
         f"Benchmark: {profil.get('benchmark', 'CW8.PA')}",
-    ])
+    ]
+
+    if actifs:
+        positions = sorted(actifs, key=lambda a: float(a.get("valeur_actuelle") or 0), reverse=True)
+        max_pos = _CHAT_MAX_POSITIONS_PAR_TIER.get(tier)
+        shown = positions if max_pos is None else positions[:max_pos]
+        total_positions = len(positions)
+
+        lignes.append("--- Positions ---")
+        for a in shown:
+            pv_txt = (
+                f"{a.get('pv_euros', 0):+.2f} € ({a.get('pv_pct', 0):+.2f}%)"
+                if a.get("cours_ok") else "—"
+            )
+            lignes.append(
+                f"  [{a.get('enveloppe')}] {a.get('nom')} ({a.get('ticker', '—')}) | "
+                f"{float(a.get('valeur_actuelle') or 0):.2f} € | PV:{pv_txt}"
+            )
+        if max_pos is not None and total_positions > max_pos:
+            lignes.append(f"  ... et {total_positions - max_pos} autre(s) position(s) non affichée(s).")
+
+    return "\n".join(lignes)
 
 
-def chat(historique_messages: list, resume: dict, tier: str = "free") -> str:
+def chat(historique_messages: list, resume: dict, actifs: list | None = None, tier: str = "free") -> str:
     """
     Chat éphémère avec Grok sans persistance DB.
 
     Args:
         historique_messages: liste de messages {"role": "user"|"assistant", "content": "..."}
         resume: dict retourné par calcul_resume()
-        tier: "free" | "tier1" | "tomino_plus" (alias entrant: "tier2")
+        actifs: liste enrichie retournée par prices.enrichir_actifs() (optionnel)
+        tier: "free" | "tomino_plus"
 
     Returns:
         Texte de réponse Grok, ou "[ERREUR] ..."
@@ -373,7 +389,7 @@ def chat(historique_messages: list, resume: dict, tier: str = "free") -> str:
     historique_messages = historique_messages[-nb_messages:]
 
     profil = db.get_profil()
-    prompt_systeme = _construire_prompt_chat(resume, profil)
+    prompt_systeme = _construire_prompt_chat(resume, profil, actifs=actifs, tier=tier)
 
     messages = [{"role": "system", "content": prompt_systeme}]
     for m in historique_messages:
@@ -394,7 +410,7 @@ def chat(historique_messages: list, resume: dict, tier: str = "free") -> str:
             payload = {
                 "model": _MODEL,
                 "messages": messages,
-                "temperature": 0.4,
+                "temperature": 0.65,
                 "max_tokens": max_tokens,
             }
 
@@ -433,22 +449,26 @@ def chat(historique_messages: list, resume: dict, tier: str = "free") -> str:
         if not reponse:
             return "[ERREUR] Réponse vide de l'API xAI."
         return reponse
-    except requests.exceptions.HTTPError:
-        return f"[ERREUR] Réponse HTTP {r.status_code} de l'API xAI : {r.text[:300]}"
+    except requests.exceptions.HTTPError as exc:
+        r_ref = exc.response
+        code = r_ref.status_code if r_ref is not None else '?'
+        body = r_ref.text[:300] if r_ref is not None else ''
+        return f"[ERREUR] Réponse HTTP {code} de l'API xAI : {body}"
     except requests.exceptions.RequestException as e:
         return f"[ERREUR] Impossible de joindre l'API xAI : {e}"
     except (KeyError, IndexError, ValueError) as e:
         return f"[ERREUR] Réponse inattendue de l'API : {e}"
 
 
-def chat_stream(historique_messages: list, resume: dict, tier: str = "free"):
+def chat_stream(historique_messages: list, resume: dict, actifs: list | None = None, tier: str = "free"):
     """
     Chat éphémère en streaming : génère des morceaux de texte au fil de l'eau.
 
     Args:
         historique_messages: liste de messages {"role": "user"|"assistant", "content": "..."}
         resume: dict retourné par calcul_resume()
-        tier: "free" | "tier1" | "tomino_plus" (alias entrant: "tier2")
+        actifs: liste enrichie retournée par prices.enrichir_actifs() (optionnel)
+        tier: "free" | "tomino_plus"
 
     Yields:
         Chunks de texte (str), ou un seul message "[ERREUR] ...".
@@ -469,7 +489,7 @@ def chat_stream(historique_messages: list, resume: dict, tier: str = "free"):
     historique_messages = historique_messages[-nb_messages:]
 
     profil = db.get_profil()
-    prompt_systeme = _construire_prompt_chat(resume, profil)
+    prompt_systeme = _construire_prompt_chat(resume, profil, actifs=actifs, tier=tier)
 
     messages = [{"role": "system", "content": prompt_systeme}]
     for m in historique_messages:
@@ -490,7 +510,7 @@ def chat_stream(historique_messages: list, resume: dict, tier: str = "free"):
             payload = {
                 "model": _MODEL,
                 "messages": messages,
-                "temperature": 0.4,
+                "temperature": 0.65,
                 "max_tokens": max_tokens,
                 "stream": True,
             }
@@ -560,8 +580,11 @@ def chat_stream(historique_messages: list, resume: dict, tier: str = "free"):
                 "content": "Continue exactement où tu t'es arrêté, sans répéter ce qui précède. Termine proprement ta réponse.",
             })
 
-    except requests.exceptions.HTTPError:
-        yield f"[ERREUR] Réponse HTTP {r.status_code} de l'API xAI : {r.text[:300]}"
+    except requests.exceptions.HTTPError as exc:
+        r_ref = exc.response
+        code = r_ref.status_code if r_ref is not None else '?'
+        body = r_ref.text[:300] if r_ref is not None else ''
+        yield f"[ERREUR] Réponse HTTP {code} de l'API xAI : {body}"
     except requests.exceptions.RequestException as e:
         yield f"[ERREUR] Impossible de joindre l'API xAI : {e}"
     except Exception as e:

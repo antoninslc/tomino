@@ -404,9 +404,10 @@ def vider_cache_ancien(max_age: int = 60) -> int:
     """
     global _cache
     now = time.time()
-    ancien_count = len(_cache)
-    _cache = {k: v for k, v in _cache.items() if now - v.get('timestamp', 0) < max_age}
-    nouveau_count = len(_cache)
+    with _cache_lock:
+        ancien_count = len(_cache)
+        _cache = {k: v for k, v in _cache.items() if now - v.get('timestamp', 0) < max_age}
+        nouveau_count = len(_cache)
     purgees = ancien_count - nouveau_count
     if purgees > 0:
         logger.debug(f"Cache: {purgees} entrées purgées (>{max_age}s)")

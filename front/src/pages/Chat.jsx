@@ -5,7 +5,7 @@ import { api } from '../api'
 const STORAGE_KEY = 'tomino_chat_messages'
 const CONVERSATIONS_KEY = 'tomino_chat_conversations'
 
-const WELCOME = [{ role: 'assistant', content: 'Bonjour. Je suis prêt à repondre à vos questions sur votre portefeuille.' }]
+const WELCOME = [{ role: 'assistant', content: 'Bonjour. Je suis prêt à répondre à vos questions sur votre portefeuille.' }]
 
 function loadMessages() {
   try {
@@ -49,6 +49,19 @@ function fmtDate(iso) {
   return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+function fmtConvDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  const dStr = d.toISOString().slice(0, 10)
+  if (dStr === today.toISOString().slice(0, 10)) return "Aujourd'hui"
+  if (dStr === yesterday.toISOString().slice(0, 10)) return 'Hier'
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
+}
+
 function UsageRing({ pct = 0, blocked = false, size = 18 }) {
   const clamped = Math.max(0, Math.min(100, Number(pct || 0)))
   const strokeWidth = 2
@@ -89,6 +102,9 @@ function UsageRing({ pct = 0, blocked = false, size = 18 }) {
   )
 }
 
+const MAX_MSG_CHARS = 2000
+const MAX_HISTORY_MESSAGES = 20
+
 function sanitizeMessagesForApi(source) {
   const list = Array.isArray(source) ? source : []
   return list
@@ -101,9 +117,10 @@ function sanitizeMessagesForApi(source) {
       if (idx === 0 && role === 'assistant' && content === WELCOME[0].content) return false
       return role === 'assistant' || role === 'user'
     })
+    .slice(-MAX_HISTORY_MESSAGES)
     .map((m) => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: String(m.content || ''),
+      content: String(m.content || '').slice(0, MAX_MSG_CHARS),
     }))
 }
 
@@ -118,6 +135,13 @@ export default function Chat() {
   const [showQuotaTip, setShowQuotaTip] = useState(false)
   const listRef = useRef(null)
   const inputRef = useRef(null)
+  const abortRef = useRef(null)
+  const pendingDeltaRef = useRef('')
+  const rafRef = useRef(null)
+
+  useEffect(() => {
+    return () => abortRef.current?.abort()
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
@@ -173,6 +197,7 @@ export default function Chat() {
         id: c?.id || `conv-${i}`,
         title: c?.title || `Conversation ${i + 1}`,
         preview,
+        date: fmtConvDate(c?.created_at),
       }
     }),
     [conversations]
@@ -187,8 +212,8 @@ export default function Chat() {
     return '<div class="chat-loading-shimmer">Tomino réfléchit</div>'
   }
 
-  async function sendMessage() {
-    const content = input.trim()
+  async function sendMessage(overrideContent) {
+    const content = (overrideContent ?? input).trim()
     if (!content || sending) return
 
     if (quota?.blocked) {
@@ -207,9 +232,11 @@ export default function Chat() {
     setMessages(next)
 
     try {
+      abortRef.current = new AbortController()
       const res = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: abortRef.current.signal,
         body: JSON.stringify({
           messages: sanitizeMessagesForApi(next.slice(0, -1))
         })
@@ -224,6 +251,7 @@ export default function Chat() {
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
       let done = false
+      const timeout = setTimeout(() => abortRef.current?.abort(), 30000)
 
       while (!done) {
         const read = await reader.read()
@@ -242,7 +270,12 @@ export default function Chat() {
           for (const line of lines) {
             if (!line.startsWith('data:')) continue
             const raw = line.replace(/^data:\s*/, '')
-            const data = JSON.parse(raw)
+            let data
+            try {
+              data = JSON.parse(raw)
+            } catch {
+              continue
+            }
 
             if (data.done) {
               setSending(false)
@@ -250,22 +283,50 @@ export default function Chat() {
             }
 
             if (typeof data.delta === 'string') {
-              setMessages((prev) => {
-                const copy = [...prev]
-                const lastIndex = copy.length - 1
-                if (lastIndex >= 0 && copy[lastIndex].role === 'assistant') {
-                  copy[lastIndex] = {
-                    ...copy[lastIndex],
-                    content: (copy[lastIndex].content || '') + data.delta
-                  }
-                }
-                return copy
-              })
+              pendingDeltaRef.current += data.delta
+              if (!rafRef.current) {
+                rafRef.current = requestAnimationFrame(() => {
+                  const delta = pendingDeltaRef.current
+                  pendingDeltaRef.current = ''
+                  rafRef.current = null
+                  if (!delta) return
+                  setMessages((prev) => {
+                    const copy = [...prev]
+                    const lastIndex = copy.length - 1
+                    if (lastIndex >= 0 && copy[lastIndex].role === 'assistant') {
+                      copy[lastIndex] = {
+                        ...copy[lastIndex],
+                        content: (copy[lastIndex].content || '') + delta
+                      }
+                    }
+                    return copy
+                  })
+                })
+              }
             }
           }
         }
       }
 
+      // Flush le delta résiduel si le rAF n'a pas encore tourné
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
+      if (pendingDeltaRef.current) {
+        const delta = pendingDeltaRef.current
+        pendingDeltaRef.current = ''
+        setMessages((prev) => {
+          const copy = [...prev]
+          const lastIndex = copy.length - 1
+          if (lastIndex >= 0 && copy[lastIndex].role === 'assistant') {
+            copy[lastIndex] = { ...copy[lastIndex], content: (copy[lastIndex].content || '') + delta }
+          }
+          return copy
+        })
+      }
+
+      clearTimeout(timeout)
       try {
         const quotaData = await api.get('/ia/quota')
         setQuota(quotaData)
@@ -273,18 +334,39 @@ export default function Chat() {
         // silent
       }
     } catch (e) {
-      setError(e?.message || 'Erreur de chat')
-      setMessages((prev) => {
-        const copy = [...prev]
-        const last = copy[copy.length - 1]
-        if (last && last.role === 'assistant') {
-          last.content = last.content || (e?.message || "Desole, je n'ai pas pu repondre pour le moment.")
-          copy[copy.length - 1] = last
-        }
-        return copy
-      })
+      if (e?.name === 'AbortError') {
+        setMessages((prev) => {
+          const copy = [...prev]
+          const last = copy[copy.length - 1]
+          if (last?.role === 'assistant') {
+            copy[copy.length - 1] = { ...last, content: last.content || 'Réponse interrompue.', isError: true }
+          }
+          return copy
+        })
+      } else {
+        const isNetwork = e instanceof TypeError && e.message === 'Failed to fetch'
+        const errMsg = isNetwork
+          ? 'Connexion interrompue. Vérifiez votre réseau et réessayez.'
+          : (e?.message || "Désolé, je n'ai pas pu répondre pour le moment.")
+        setError(errMsg)
+        setMessages((prev) => {
+          const copy = [...prev]
+          const last = copy[copy.length - 1]
+          if (last?.role === 'assistant') {
+            copy[copy.length - 1] = { ...last, content: last.content || errMsg, isError: true }
+          }
+          return copy
+        })
+      }
       setSending(false)
     }
+  }
+
+  function retry() {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    if (!lastUser || sending) return
+    setMessages((prev) => prev.filter((_, i) => i < prev.length - 1))
+    sendMessage(lastUser.content)
   }
 
   function onKeyDown(e) {
@@ -303,6 +385,8 @@ export default function Chat() {
   function _archiveCurrentConversation(sourceMessages = messages) {
     const userCount = (sourceMessages || []).filter((m) => m?.role === 'user').length
     if (!userCount) return
+    const isOnlyWelcome = sourceMessages.length <= 1 && sourceMessages[0]?.content === WELCOME[0].content
+    if (isOnlyWelcome) return
 
     const nowIso = new Date().toISOString()
     const entry = {
@@ -373,7 +457,21 @@ export default function Chat() {
                   {isUser ? (
                     <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
                   ) : (
-                    <div dangerouslySetInnerHTML={{ __html: m.content ? renderMarkdown(m.content) : sending ? renderLoading() : '' }} />
+                    <>
+                      <div
+                        className={sending && idx === messages.length - 1 ? 'chat-streaming' : undefined}
+                        dangerouslySetInnerHTML={{ __html: m.content ? renderMarkdown(m.content) : sending ? renderLoading() : '' }}
+                      />
+                      {m.isError && idx === messages.length - 1 && (
+                        <button
+                          type="button"
+                          onClick={retry}
+                          style={{ marginTop: 8, fontSize: '.75rem', color: 'var(--text-3)', background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}
+                        >
+                          Réessayer
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               )
@@ -416,7 +514,10 @@ export default function Chat() {
                   display: 'block',
                 }}
               >
-                <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', marginBottom: 3 }}>{h.title}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)' }}>{h.title}</div>
+                  {h.date && <div style={{ fontFamily: 'var(--mono)', fontSize: '.58rem', color: 'var(--text-3)', flexShrink: 0, marginLeft: 6 }}>{h.date}</div>}
+                </div>
                 <div style={{ fontSize: '.77rem', color: 'var(--text-2)', lineHeight: 1.4 }}>{h.preview || '...'}</div>
               </button>
             ))}
@@ -507,7 +608,7 @@ export default function Chat() {
               </button>
             </div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: '.64rem', color: 'var(--text-3)', padding: '0 14px 12px' }}>
-              Entree pour envoyer · Shift+Entree pour retour a la ligne · Reponses generees par IA - pas un conseil financier
+              Entrée pour envoyer · Shift+Entrée pour retour à la ligne · Réponses générées par IA - pas un conseil financier
             </div>
           </div>
 

@@ -105,12 +105,6 @@ const TIERS = [
     minPlan: 'free',
   },
   {
-    value: 'tier1',
-    label: 'Standard',
-    sub: 'Bon équilibre profondeur / crédits',
-    minPlan: 'tier1',
-  },
-  {
     value: 'tomino_plus',
     label: 'Approfondi',
     sub: 'Analyse riche, consommation plus élevée',
@@ -1598,7 +1592,7 @@ export default function Settings() {
             </p>
             <div style={{ display: 'grid', gap: 8 }}>
               {TIERS.map((item) => {
-                const tierOrder = { free: 0, tier1: 1, tomino_plus: 2, tier2: 2 }
+                const tierOrder = { free: 0, tomino_plus: 1 }
                 const locked = tierOrder[item.value] > tierOrder[form.tier]
                 const active = form.tier === item.value
                 return (
@@ -2780,7 +2774,7 @@ export default function Settings() {
   }
 
   function renderSyncPage() {
-    const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || ['tier1', 'tomino_plus', 'tier2'].includes(String(syncAuthUser?.tier || '').toLowerCase()))
+    const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || String(syncAuthUser?.tier || '').toLowerCase() === 'tomino_plus')
     const currentTier = String(syncSubscription?.tier || syncAuthUser?.tier || 'free').toLowerCase()
     const currentDevice = (syncDevices || []).find((d) => d.device_id === syncCurrentDeviceId) || null
     const otherDevices = (syncDevices || []).filter((d) => d.device_id && d.device_id !== syncCurrentDeviceId && !d.revoked_at)
@@ -2971,7 +2965,7 @@ export default function Settings() {
   }
 
   function renderPricingPage() {
-    const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || ['tier1', 'tomino_plus', 'tier2'].includes(String(syncAuthUser?.tier || '').toLowerCase()))
+    const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || String(syncAuthUser?.tier || '').toLowerCase() === 'tomino_plus')
 
     return (
       <>

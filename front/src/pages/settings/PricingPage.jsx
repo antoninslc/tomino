@@ -14,7 +14,7 @@ export default function PricingPage({ ctx }) {
     TOMINO_PLUS_FEATURES,
   } = ctx
 
-  const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || ['tier1', 'tomino_plus', 'tier2'].includes(String(syncAuthUser?.tier || '').toLowerCase()))
+  const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || String(syncAuthUser?.tier || '').toLowerCase() === 'tomino_plus')
 
   return (
     <>

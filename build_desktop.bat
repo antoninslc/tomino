@@ -3,12 +3,20 @@ set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 echo === Build Tomino Desktop ===
 echo.
 
+echo [0/3] Activation de l'environnement virtuel...
+if not exist ".venv\Scripts\activate.bat" (
+    echo ERREUR: Environnement virtuel introuvable.
+    pause
+    exit /b 1
+)
+call .venv\Scripts\activate.bat
+
 echo [1/3] Build Backend (PyInstaller)...
-pip install pyinstaller
-pip install -r requirements.txt
-pyinstaller --onefile --noconsole --name tomino-backend-x86_64-pc-windows-msvc app.py
+python -m pip install pyinstaller
+python -m pip install -r requirements.txt
+python -m PyInstaller --onefile --noconsole --hidden-import=stripe --hidden-import=resend --hidden-import=cryptography --hidden-import=zoneinfo --hidden-import=tzdata --collect-all=tzdata --name tomino-backend app.py
 if not exist "front\src-tauri\binaries" mkdir "front\src-tauri\binaries"
-move /Y "dist\tomino-backend-x86_64-pc-windows-msvc.exe" "front\src-tauri\binaries\"
+move /Y "dist\tomino-backend.exe" "front\src-tauri\binaries\tomino-backend-x86_64-pc-windows-msvc.exe"
 if errorlevel 1 (
     echo ERREUR: Build Backend echoue
     exit /b 1

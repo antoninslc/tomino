@@ -263,7 +263,11 @@ export default function Onboarding() {
           )}
 
           <div style={{ marginTop: 'auto', paddingTop: 24, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-            <button type="button" className="btn btn-ghost" onClick={prev} disabled={step === 1}>Précédent</button>
+            {step === 1 ? (
+              <button type="button" className="btn btn-ghost" onClick={() => window.location.href = '/welcome'}>Annuler</button>
+            ) : (
+              <button type="button" className="btn btn-ghost" onClick={prev}>Précédent</button>
+            )}
             {step < TOTAL_STEPS ? (
               <button type="button" className="btn btn-primary" onClick={next} disabled={!canGoNext()}>Suivant</button>
             ) : (

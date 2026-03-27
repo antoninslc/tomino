@@ -70,10 +70,12 @@ tomino_track/
         ├── api.js          ← client HTTP centralisé (get/post/put/del)
         ├── index.css       ← Tailwind + classes custom (card, stat, tbl-wrap...)
         ├── components/
-        │   ├── Sidebar.jsx  ← navigation, statut marché temps réel
-        │   ├── Topbar.jsx   ← barre supérieure (intégrée dans App.jsx)
+        │   ├── Sidebar.jsx      ← navigation, statut marché temps réel
+        │   ├── Topbar.jsx       ← barre supérieure (intégrée dans App.jsx)
+        │   ├── DemoBanner.jsx   ← bandeau démo (visible si is_demo=1), bouton quitter la démo
         │   └── CustomSelect.jsx ← menu déroulant custom (style unifié, sans select natif)
         └── pages/
+            ├── Welcome.jsx        ← accueil 1er lancement (Créer / Visite libre / Connexion)
             ├── Dashboard.jsx      ← vue d'ensemble, historique, allocation
             ├── Portefeuille.jsx   ← PEA/CTO/Or avec benchmark et TRI
             ├── ActifForm.jsx      ← ajout/modification actif, autocomplete ticker
@@ -84,7 +86,7 @@ tomino_track/
             ├── Repartition.jsx    ← répartition géographique/sectorielle
             ├── AnalyseIA.jsx      ← 3 modes d'analyse Grok
             ├── Chat.jsx           ← chat streaming avec Grok
-            ├── Onboarding.jsx     ← questionnaire 5 étapes au 1er lancement
+            ├── Onboarding.jsx     ← questionnaire 5 étapes (accessible depuis Welcome)
             └── Settings.jsx       ← paramètres profil investisseur + assistant fiscal 3916
 ```
 
@@ -161,6 +163,7 @@ secteurs_exclus TEXT DEFAULT '[]'  -- JSON array
 pays_exclus TEXT DEFAULT '[]'      -- JSON array
 benchmark TEXT DEFAULT 'CW8.PA'   -- ticker Yahoo du benchmark
 tier TEXT DEFAULT 'free'           -- "free" | "tier1" | "tier2" ← niveau de prompt Grok
+is_demo INTEGER DEFAULT 0          -- 1 = mode découverte actif (données fictives injectées)
 ```
 
 ### Table `dividendes`
@@ -409,16 +412,18 @@ created_at TEXT DEFAULT (datetime('now'))
 | GET | `/api/benchmark?ticker=CW8.PA&depuis=2024-01-01` | Perf benchmark |
 | GET | `/api/repartition?env=PEA` | Répartition géo/sectorielle |
 
-### Profil & IA
+### Profil, IA & Démo
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/api/profil` | Retourne le profil investisseur |
-| POST | `/api/profil` | Sauvegarde le profil |
+| GET | `/api/profil` | Retourne le profil investisseur (inclut `is_demo`) |
+| POST | `/api/profil` | Sauvegarde profil — efface les données démo si `is_demo=1` avant de sauver |
 | GET | `/api/ia/quota` | Consommation IA hebdomadaire (chat + analyse) |
 | POST | `/api/grok/analyser` | Lance une analyse (body: `{type_analyse}`) |
 | GET | `/api/grok/historique` | 20 dernières analyses |
 | POST | `/api/chat` | Chat simple (non-streaming) |
 | POST | `/api/chat/stream` | Chat streaming SSE |
+| POST | `/api/demo/inject` | Injecte les données fictives de démo (actifs PEA, livrets, 30 jours d'historique) et passe `is_demo=1` |
+| POST | `/api/demo/reset` | Purge toutes les données métier et remet `is_demo=0` (retour à l'état vierge) |
 
 ---
 
@@ -539,6 +544,20 @@ mais la vraie contrainte est appliquée **côté serveur** dans `save_profil()` 
 - **Chat UX** : `Chat.jsx` affiche une colonne d'historique des conversations à droite, un bouton icône `+` pour démarrer une nouvelle conversation (sans suppression d'historique), un indicateur rond d'utilisation IA (tooltip au hover), et un état « Tomino réfléchit » en texte surbrillant (sans points animés).
 - **Analyse UX** : `AnalyseIA.jsx` ne montre pas la consommation ; le blocage quota est affiché dans le bouton `Obtenir un rapport` avec compte à rebours de disponibilité.
 - **Branding UX** : `Sidebar.jsx` affiche `Tomino+` en un seul mot quand l'abonnement Tomino + est actif, avec le `+` en doré.
+
+### Accueil et mode découverte
+- **Page Welcome** (`Welcome.jsx`) : présentée systématiquement aux nouveaux utilisateurs (profil absent ou vierge). Trois choix : « Créer mon espace » → `/onboarding`, « Visite libre » → injecte données démo via `POST /api/demo/inject` puis recharge, « J'ai un compte » → `/settings/sync`.
+- **Mode démo** : activé via `is_demo=1` sur le profil. Injecte un PEA fictif (LVMH, Air Liquide, CW8), deux livrets, et 30 jours d'historique.
+- **DemoBanner** (`DemoBanner.jsx`) : bandeau fixe en bas de l'écran, visible uniquement si `is_demo=1`. Affiche un avertissement et un bouton « Quitter la démo et commencer » qui appelle `POST /api/demo/reset` puis redirige vers `/welcome`.
+- **Routing onboarding** : `App.jsx` redirige vers `/welcome` si le profil est absent ou vierge (et que la session n'est pas déjà sur `/onboarding` ou `/settings/sync`). Quitter le mode démo retourne à `/welcome`.
+- **Sortie du mode démo par onboarding** : `POST /api/profil` détecte `is_demo=1` et appelle `reset_all_data()` avant de sauvegarder le vrai profil, pour garantir que les données fictives sont purgées.
+
+### Accueil et mode découverte
+- **Page Welcome** (`Welcome.jsx`) : présentée systématiquement aux nouveaux utilisateurs (profil absent ou vierge). Trois choix : « Créer mon espace » → `/onboarding`, « Visite libre » → injecte données démo via `POST /api/demo/inject` puis recharge, « J'ai un compte » → `/settings/sync`.
+- **Mode démo** : activé via `is_demo=1` sur le profil. Injecte un PEA fictif (LVMH, Air Liquide, CW8), deux livrets, et 30 jours d'historique.
+- **DemoBanner** (`DemoBanner.jsx`) : bandeau fixe en bas de l'écran, visible uniquement si `is_demo=1`. Affiche un avertissement et un bouton « Quitter la démo et commencer » qui appelle `POST /api/demo/reset` puis redirige vers `/welcome`.
+- **Routing onboarding** : `App.jsx` redirige vers `/welcome` si le profil est absent ou vierge (et que la session n'est pas déjà sur `/onboarding` ou `/settings/sync`). Quitter le mode démo retourne à `/welcome`.
+- **Sortie du mode démo par onboarding** : `POST /api/profil` détecte `is_demo=1` et appelle `reset_all_data()` avant de sauvegarder le vrai profil, pour garantir que les données fictives sont purgées.
 
 ---
 

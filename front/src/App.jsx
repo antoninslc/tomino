@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { api } from './api'
 import UpdateBanner from './components/UpdateBanner'
+import DemoBanner from './components/DemoBanner'
 import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
 import Portefeuille from './pages/Portefeuille'
@@ -14,7 +15,9 @@ import Analyse from './pages/AnalyseIA'
 import Chat from './pages/Chat'
 import ActifForm from './pages/ActifForm'
 import Settings from './pages/Settings'
+import Notifications from './pages/Notifications'
 import Onboarding from './pages/Onboarding'
+import Welcome from './pages/Welcome'
 
 const DEFAULT_PROFIL = {
   horizon: 'long',
@@ -150,6 +153,9 @@ function Topbar() {
   } else if (path === '/alertes') {
     page = 'Portefeuilles'
     title = 'Alertes'
+  } else if (path === '/notifications') {
+    page = 'Tomino'
+    title = 'Notifications'
   } else if (path === '/analyse') {
     page = 'Tomino Intelligence'
     title = 'Analyse'
@@ -217,8 +223,11 @@ export default function App() {
   const location = useLocation()
   const isChatPage = location.pathname === '/chat'
   const isOnboardingPage = location.pathname === '/onboarding'
+  const isWelcomePage = location.pathname === '/welcome'
+  const isSyncPage = location.pathname === '/settings/sync'
   const [profileChecked, setProfileChecked] = useState(false)
   const [needOnboarding, setNeedOnboarding] = useState(false)
+  const [isDemo, setIsDemo] = useState(false)
 
   useEffect(() => {
     if (/\/actifs\/(ajouter|modifier)/.test(location.pathname)) return
@@ -239,7 +248,10 @@ export default function App() {
         const hasFlag = typeof profil?.profil_exists === 'boolean'
         const doneLocally = localStorage.getItem('tomino_onboarding_done') === '1'
         const need = hasFlag ? !profil.profil_exists : (!doneLocally && profileLooksDefault(profil))
-        if (mounted) setNeedOnboarding(need)
+        if (mounted) {
+          setNeedOnboarding(need)
+          setIsDemo(profil?.is_demo === 1)
+        }
       } catch {
         if (mounted) setNeedOnboarding(false)
       } finally {
@@ -259,12 +271,22 @@ export default function App() {
     )
   }
 
-  if (needOnboarding && !isOnboardingPage) {
-    return <Navigate to="/onboarding" replace />
+  // Autoriser la page de connexion (sync) même si pas de profil
+  if (needOnboarding && !isOnboardingPage && !isWelcomePage && !isSyncPage) {
+    return <Navigate to="/welcome" replace />
   }
 
-  if (!needOnboarding && isOnboardingPage) {
+  if (!needOnboarding && (isOnboardingPage || isWelcomePage)) {
     return <Navigate to="/" replace />
+  }
+
+  if (isWelcomePage) {
+    return (
+      <Routes>
+        <Route path="/welcome" element={<Welcome />} />
+        <Route path="*" element={<Navigate to="/welcome" replace />} />
+      </Routes>
+    )
   }
 
   if (isOnboardingPage) {
@@ -278,6 +300,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <DemoBanner isDemo={isDemo} />
       <UpdateBanner />
       <Sidebar />
       <main className="main">
@@ -295,6 +318,7 @@ export default function App() {
             <Route path="/assurance-vie" element={<AssuranceVie />} />
             <Route path="/dividendes" element={<Dividendes />} />
             <Route path="/alertes" element={<Alertes />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route path="/analyse" element={<Analyse />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/settings/*" element={<Settings />} />
