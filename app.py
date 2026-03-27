@@ -129,8 +129,8 @@ def _snapshot_scheduler():
                 "livrets": resume["livrets"]["valeur_actuelle"],
                 "assurance_vie": resume["assurance_vie"]["valeur_actuelle"],
             }, snapshot_date=_paris_now().date().isoformat())
-        except Exception:
-            pass
+        except Exception as e:
+            app.logger.warning("snapshot journalier raté: %s", e)
 
 
 def _paris_now() -> datetime.datetime:
@@ -152,7 +152,14 @@ def _week_window_paris(now: datetime.datetime | None = None) -> tuple[datetime.d
     return start, end
 
 
-def _compute_ia_quota(now: datetime.datetime | None = None) -> dict:
+_MAX_ANALYSE_CALLS_PAR_TIER: dict[str, int | None] = {
+    "free": 3,
+    "tier1": None,
+    "tomino_plus": None,
+}
+
+
+def _compute_ia_quota(now: datetime.datetime | None = None, tier: str | None = None) -> dict:
     current = now or _paris_now()
     week_start, week_end = _week_window_paris(current)
     summary = db.get_ia_usage_summary(
@@ -162,6 +169,17 @@ def _compute_ia_quota(now: datetime.datetime | None = None) -> dict:
     spent = float(summary.get("cost_eur") or 0.0)
     remaining = max(0.0, IA_WEEKLY_BUDGET_EUR - spent)
     blocked = spent >= IA_WEEKLY_BUDGET_EUR
+
+    by_endpoint = summary.get("by_endpoint") or []
+    analyse_calls = next(
+        (int(e.get("calls") or 0) for e in by_endpoint if e.get("endpoint") == "analyse"),
+        0,
+    )
+
+    if tier is None:
+        tier = db.get_profil().get("tier", "free")
+    max_analyse_calls = _MAX_ANALYSE_CALLS_PAR_TIER.get(str(tier), None)
+
     return {
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
@@ -173,8 +191,10 @@ def _compute_ia_quota(now: datetime.datetime | None = None) -> dict:
         "input_tokens": int(summary.get("input_tokens") or 0),
         "output_tokens": int(summary.get("output_tokens") or 0),
         "calls": int(summary.get("calls") or 0),
-        "by_endpoint": summary.get("by_endpoint") or [],
+        "by_endpoint": by_endpoint,
         "blocked": blocked,
+        "analyse_calls": analyse_calls,
+        "max_analyse_calls": max_analyse_calls,
     }
 
 
@@ -1911,7 +1931,7 @@ def calcul_resume(force: bool = False):
     stats_cto = prices.calcul_stats_enveloppe(cto)
     stats_or = prices.calcul_stats_enveloppe(or_)
 
-    val_livrets = sum(l["capital"] for l in livrets)
+    val_livrets = sum(l.get("capital") or 0 for l in livrets)
     val_assurance_vie = sum(_to_float(c.get("valeur_actuelle"), 0) for c in assurance_vie)
     inv_assurance_vie = sum(_to_float(c.get("versements"), 0) for c in assurance_vie)
     total = stats_pea["valeur_actuelle"] + stats_cto["valeur_actuelle"] + stats_or["valeur_actuelle"] + val_livrets + val_assurance_vie
@@ -3475,6 +3495,13 @@ def api_ia_quota():
 @app.route("/api/profil", methods=["POST"])
 def api_profil_save():
     payload = request.get_json(silent=True) or {}
+    # Si on était en mode demo, purger les données fictives avant de sauvegarder le vrai profil
+    try:
+        current = db.get_profil()
+        if int(current.get("is_demo") or 0) == 1:
+            db.reset_all_data()
+    except Exception:
+        pass
     db.save_profil(payload)
     return jsonify({"ok": True})
 
@@ -4167,7 +4194,7 @@ def api_grok_analyser():
         return jsonify({"ok": False, "erreur": _quota_error_message(quota), "quota": quota}), 429
 
     resume = calcul_resume()
-    actifs = prices.enrichir_actifs(db.get_actifs())
+    actifs = [a for a in _enrichir_avec_tri(db.get_actifs()) if float(a.get("quantite") or 0) > 0]
     reponse = grok.analyser(type_analyse, resume, actifs, tier=tier)
 
     if str(reponse or "").startswith("[ERREUR]"):
@@ -4177,12 +4204,15 @@ def api_grok_analyser():
             "action": "Vérifiez la clé API xAI, votre connexion réseau, puis réessayez.",
         }), 502
 
+    analyse_id = None
     if not str(reponse or "").startswith("[ERREUR]"):
         input_text = json.dumps({"type_analyse": type_analyse, "resume": resume, "actifs": actifs}, ensure_ascii=False)
         _record_ia_usage("analyse", tier, input_text, reponse)
+        last = db.get_analyses(1)
+        analyse_id = last[0]["id"] if last else None
 
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return jsonify({"ok": True, "type": type_analyse, "reponse": reponse, "date": now_str})
+    return jsonify({"ok": True, "id": analyse_id, "type": type_analyse, "reponse": reponse, "date": now_str})
 
 
 @app.route("/api/grok/historique")
@@ -4267,6 +4297,22 @@ def api_chat_stream():
     )
 
 
+@app.route("/api/demo/inject", methods=["POST"])
+def api_demo_inject():
+    try:
+        db.inject_demo_data()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "erreur": str(e)}), 500
+
+@app.route("/api/demo/reset", methods=["POST"])
+def api_demo_reset():
+    try:
+        db.reset_all_data()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "erreur": str(e)}), 500
+
 @app.errorhandler(404)
 def json_not_found(_error):
     return jsonify({
@@ -4293,6 +4339,7 @@ def json_sqlite_operational_error(error):
     }), 500
 
 
+
 if SERVE_FRONTEND:
     from flask import send_from_directory
 
@@ -4312,3 +4359,4 @@ if SERVE_FRONTEND:
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
+

@@ -67,9 +67,14 @@ const ICONS = {
   ),
   alertes: (
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M1.5 5.5H5L10 2V13L5 9.5H1.5V5.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" fillOpacity=".12" fill="currentColor"/>
+      <path d="M11.5 5.5a2.5 2.5 0 010 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  ),
+  notifications: (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M7.5 1.5C5.015 1.5 3 3.515 3 6v3.5l-1 1.5h11l-1-1.5V6c0-2.485-2.015-4.5-4.5-4.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
       <path d="M6 11.5c0 .828.672 1.5 1.5 1.5S9 12.328 9 11.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-      <circle cx="11" cy="4" r="2" fill="var(--red)" opacity=".85"/>
     </svg>
   ),
   analyse: (
@@ -200,6 +205,7 @@ function renderGroup({ section, items }, forceIntel = false) {
 export default function Sidebar() {
   const [isPortfolioOpen, setIsPortfolioOpen] = useState(true)
   const [showTominoPlusBadge, setShowTominoPlusBadge] = useState(false)
+  const [triggeredAlertCount, setTriggeredAlertCount] = useState(0)
   const topGroup = links[0]
   const middleGroups = links.slice(1, -1)
   const bottomGroup = links[links.length - 1]
@@ -245,6 +251,32 @@ export default function Sidebar() {
     }
   }, [])
 
+  useEffect(() => {
+    let mounted = true
+    async function loadTriggered() {
+      try {
+        const res = await fetch('/api/alertes')
+        if (!res.ok) return
+        const data = await res.json().catch(() => ({}))
+        const lastSeen = localStorage.getItem('tomino_notifs_last_seen')
+        const lastSeenDate = lastSeen ? new Date(lastSeen) : null
+        const count = (data?.alertes || []).filter(a => {
+          if (a.active !== 0) return false
+          if (!lastSeenDate) return true
+          const d = a.declenchee_le ? new Date(a.declenchee_le) : null
+          return d && d > lastSeenDate
+        }).length
+        if (mounted) setTriggeredAlertCount(count)
+      } catch { /* ignore */ }
+    }
+    loadTriggered()
+    const id = window.setInterval(loadTriggered, 30000)
+    return () => {
+      mounted = false
+      window.clearInterval(id)
+    }
+  }, [])
+
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -265,14 +297,38 @@ export default function Sidebar() {
             </span>
           )}
         </div>
-        <NavLink
-          to="/settings"
-          className={({ isActive }) => `sidebar-settings-link${isActive ? ' active' : ''}`}
-          aria-label="Paramètres"
-          title="Paramètres"
-        >
-          <span className="nav-icon">{ICONS.settings}</span>
-        </NavLink>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <NavLink
+            to="/notifications"
+            className={({ isActive }) => `sidebar-settings-link${isActive ? ' active' : ''}`}
+            aria-label="Notifications"
+            title="Notifications"
+            style={{ position: 'relative' }}
+          >
+            <span className="nav-icon">{ICONS.notifications}</span>
+            {triggeredAlertCount > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: 3,
+                right: 3,
+                width: 5,
+                height: 5,
+                borderRadius: '50%',
+                background: 'var(--red)',
+                opacity: 0.9,
+                pointerEvents: 'none'
+              }} />
+            )}
+          </NavLink>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `sidebar-settings-link${isActive ? ' active' : ''}`}
+            aria-label="Paramètres"
+            title="Paramètres"
+          >
+            <span className="nav-icon">{ICONS.settings}</span>
+          </NavLink>
+        </div>
       </div>
       <div className="sidebar-layout">
         <div className="sidebar-top">

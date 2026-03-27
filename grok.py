@@ -166,35 +166,50 @@ def _profil_prompt_block(profil: dict) -> str:
 
 def _construire_contexte(resume: dict, actifs: list, profil: dict | None = None) -> str:
     """Sérialise le snapshot patrimonial en texte structuré pour le prompt."""
+    _pea = resume.get("pea") or {}
+    _cto = resume.get("cto") or {}
+    _or  = resume.get("or")  or {}
+    _liv = resume.get("livrets") or {}
+    _av  = resume.get("assurance_vie") or {}
     lignes = [
         "=== SNAPSHOT PATRIMONIAL ===",
-        f"Valeur totale     : {resume['total']:.2f} €",
-        f"Montant investi   : {resume['total_investi']:.2f} €",
-        f"Plus-value totale : {resume['pv_total']:+.2f} € ({resume['pv_pct']:+.2f}%)",
+        f"Valeur totale     : {float(resume.get('total') or 0):.2f} €",
+        f"Montant investi   : {float(resume.get('total_investi') or 0):.2f} €",
+        f"Plus-value totale : {float(resume.get('pv_total') or 0):+.2f} € ({float(resume.get('pv_pct') or 0):+.2f}%)",
         "",
         "--- Allocation par enveloppe ---",
-        f"PEA     : {resume['pea']['valeur_actuelle']:.2f} € ({resume['pea']['pct']}%)"
-        f"  |  PV {resume['pea']['pv_euros']:+.2f} € ({resume['pea']['pv_pct']:+.2f}%)",
-        f"CTO     : {resume['cto']['valeur_actuelle']:.2f} € ({resume['cto']['pct']}%)"
-        f"  |  PV {resume['cto']['pv_euros']:+.2f} € ({resume['cto']['pv_pct']:+.2f}%)",
-        f"Or      : {resume['or']['valeur_actuelle']:.2f} € ({resume['or']['pct']}%)"
-        f"  |  PV {resume['or']['pv_euros']:+.2f} € ({resume['or']['pv_pct']:+.2f}%)",
-        f"Livrets : {resume['livrets']['valeur_actuelle']:.2f} € ({resume['livrets']['pct']}%)",
+        f"PEA     : {float(_pea.get('valeur_actuelle') or 0):.2f} € ({_pea.get('pct', 0)}%)"
+        f"  |  PV {float(_pea.get('pv_euros') or 0):+.2f} € ({float(_pea.get('pv_pct') or 0):+.2f}%)",
+        f"CTO     : {float(_cto.get('valeur_actuelle') or 0):.2f} € ({_cto.get('pct', 0)}%)"
+        f"  |  PV {float(_cto.get('pv_euros') or 0):+.2f} € ({float(_cto.get('pv_pct') or 0):+.2f}%)",
+        f"Or      : {float(_or.get('valeur_actuelle') or 0):.2f} € ({_or.get('pct', 0)}%)"
+        f"  |  PV {float(_or.get('pv_euros') or 0):+.2f} € ({float(_or.get('pv_pct') or 0):+.2f}%)",
+        f"Livrets : {float(_liv.get('valeur_actuelle') or 0):.2f} € ({_liv.get('pct', 0)}%)",
+        f"Assurance vie : {float(_av.get('valeur_actuelle') or 0):.2f} € ({_av.get('pct', 0)}%)",
     ]
+
+    dividendes_total = float((resume.get("dividendes") or {}).get("total") or 0)
+    if dividendes_total:
+        lignes.append(f"Dividendes encaissés : {dividendes_total:.2f} €")
 
     if profil:
         lignes.append(_profil_prompt_block(profil))
 
     if actifs:
+        cours_manquants = [a.get("nom") for a in actifs if not a.get("cours_ok")]
+        if cours_manquants:
+            lignes.append(f"ATTENTION : cours indisponibles pour {', '.join(cours_manquants)} — PV non calculables pour ces positions.")
         lignes.extend(["", "--- Positions ---"])
         for a in actifs:
             cours = f"{a.get('cours_actuel', '?')} {a.get('devise', '€')}" if a.get("cours_ok") else "cours indisponible"
             pv    = f"{a.get('pv_euros', 0):+.2f} € ({a.get('pv_pct', 0):+.2f}%)" if a.get("cours_ok") else "—"
+            tri = a.get("tri")
+            tri_txt = f" | TRI:{tri:.1f}%" if isinstance(tri, (int, float)) else ""
             lignes.append(
                 f"  [{a.get('enveloppe')}] {a.get('nom')} ({a.get('ticker', '—')}) | "
                 f"type:{a.get('type')} cat:{a.get('categorie')} | "
                 f"qté:{a.get('quantite')} PRU:{a.get('pru'):.2f}€ | "
-                f"cours:{cours} | PV:{pv}"
+                f"cours:{cours} | PV:{pv}{tri_txt}"
             )
 
     return "\n".join(lignes)
@@ -263,7 +278,7 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
 
             data = r.json()
             choice = data["choices"][0]
-            chunk = choice["message"]["content"].strip()
+            chunk = ((choice.get("message") or {}).get("content") or "").strip()
             finish_reason = choice.get("finish_reason", "")
 
             morceaux.append(chunk)
@@ -285,7 +300,8 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
     except (KeyError, IndexError, ValueError) as e:
         reponse = f"[ERREUR] Réponse inattendue de l'API : {e}"
 
-    db.save_analyse(type_analyse, contexte, reponse)
+    if not reponse.startswith("[ERREUR]"):
+        db.save_analyse(type_analyse, contexte, reponse)
     return reponse
 
 

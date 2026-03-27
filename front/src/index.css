@@ -601,7 +601,15 @@ a {
 }
 
 .btn-analyse .btn-icon {
-	font-size: 1.1rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.hist-item.active {
+	background: rgba(255,255,255,.04);
+	border-radius: 6px;
 }
 
 .btn-analyse.perf {

@@ -1,11 +1,37 @@
 import { useEffect, useMemo, useState } from 'react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { api } from '../api'
 
 const LABELS = {
   performance: 'Performance',
   arbitrage: 'Arbitrage',
   risques: 'Risques'
+}
+
+function AnalyseIcon({ type }) {
+  const c = ICON_COLORS[type] || 'currentColor'
+  if (type === 'arbitrage') return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2.5 5.5H12.5M10 3L12.5 5.5L10 8" stroke={c} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M12.5 9.5H2.5M5 7.5L2.5 10L5 12.5" stroke={c} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+  if (type === 'risques') return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M7.5 1.5L13 4V8.5C13 11.5 10.5 13.5 7.5 14C4.5 13.5 2 11.5 2 8.5V4L7.5 1.5Z" stroke={c} strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M7.5 5.5V8.5" stroke={c} strokeWidth="1.3" strokeLinecap="round"/>
+      <circle cx="7.5" cy="10.5" r="0.7" fill={c}/>
+    </svg>
+  )
+  // performance (défaut)
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 10L5.5 6.5L8.5 8.5L13 3" stroke={c} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M10.5 3H13V5.5" stroke={c} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M2 13H13" stroke={c} strokeWidth="1.1" strokeLinecap="round" opacity=".4"/>
+    </svg>
+  )
 }
 
 function sanitizeType(type) {
@@ -17,6 +43,7 @@ function excerpt(text) {
     .replace(/###|##|#|\*\*|`/g, '')
     .replace(/\r/g, ' ')
     .replace(/\n/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
 }
 
@@ -43,6 +70,28 @@ function getTone(type) {
   return 'perf'
 }
 
+const ICON_COLORS = {
+  performance: 'var(--green)',
+  arbitrage: '#c9a84c',
+  risques: 'var(--red)',
+}
+
+function formatAnalyseDate(raw) {
+  if (!raw || raw === '-') return '-'
+  try {
+    const d = new Date(String(raw).replace(' ', 'T'))
+    if (Number.isNaN(d.getTime())) return raw
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    const today = new Date().toISOString().slice(0, 10)
+    const dateStr = d.toISOString().slice(0, 10)
+    if (dateStr === today) return `Aujourd'hui à ${hh}:${mm}`
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} à ${hh}:${mm}`
+  } catch {
+    return raw
+  }
+}
+
 function parseApiError(err, fallback) {
   const raw = String(err?.message || '')
   try {
@@ -56,6 +105,7 @@ function parseApiError(err, fallback) {
 
 export default function Analyse() {
   const [typeAnalyse, setTypeAnalyse] = useState('performance')
+  const [historyMode, setHistoryMode] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [error, setError] = useState('')
@@ -68,9 +118,9 @@ export default function Analyse() {
     marked.setOptions({ gfm: true, breaks: true })
     const markdown = decodePossiblyEscapedText(result || '')
     if (markdown.startsWith('[ERREUR]')) {
-      return `<div class="analyse-error">${markdown}</div>`
+      return `<div class="analyse-error">${DOMPurify.sanitize(markdown)}</div>`
     }
-    return marked.parse(markdown)
+    return DOMPurify.sanitize(marked.parse(markdown))
   }, [result])
 
   const analysesDuJour = useMemo(() => {
@@ -97,7 +147,7 @@ export default function Analyse() {
       const midnight = new Date(now)
       midnight.setHours(24, 0, 0, 0)
       const diff = midnight - now
-      if (diff <= 0) { setCountdown('00:00:00'); return }
+      if (diff <= 0) { setCountdown(''); return }
       const h = Math.floor(diff / 3600000)
       const m = Math.floor((diff % 3600000) / 60000)
       const s = Math.floor((diff % 60000) / 1000)
@@ -132,12 +182,16 @@ export default function Analyse() {
   }, [quota?.next_reset])
 
   useEffect(() => {
+    if (historyMode) return
     const cached = analysesDuJour[typeAnalyse]
     if (cached) {
       setResult(cached.reponse || '')
-      setResultMeta({ date: cached.date || '-', type: cached.type_analyse || typeAnalyse })
+      setResultMeta({ id: cached.id ?? null, date: cached.date || '-', type: cached.type_analyse || typeAnalyse })
+    } else {
+      setResult('')
+      setResultMeta(null)
     }
-  }, [typeAnalyse, analysesDuJour])
+  }, [typeAnalyse, analysesDuJour, historyMode])
 
   useEffect(() => {
     ;(async () => {
@@ -152,6 +206,7 @@ export default function Analyse() {
         if (analyses.length) {
           setResult(analyses[0].reponse || '')
           setResultMeta({
+            id: analyses[0].id ?? null,
             date: analyses[0].date || '-',
             type: analyses[0].type_analyse || 'performance'
           })
@@ -185,11 +240,17 @@ export default function Analyse() {
     try {
       const data = await api.post('/grok/analyser', { type_analyse: nextType })
       setResult(data?.reponse || '')
-      setResultMeta({ date: data?.date || '-', type: data?.type || nextType })
       setTypeAnalyse(nextType)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
 
       const hist = await api.get('/grok/historique')
-      setHistory(Array.isArray(hist?.analyses) ? hist.analyses : [])
+      const analyses = Array.isArray(hist?.analyses) ? hist.analyses : []
+      setHistory(analyses)
+      setResultMeta({
+        id: data?.id ?? analyses[0]?.id ?? null,
+        date: data?.date || analyses[0]?.date || '-',
+        type: data?.type || nextType
+      })
       const quotaData = await api.get('/ia/quota')
       setQuota(quotaData)
     } catch (e) {
@@ -206,8 +267,10 @@ export default function Analyse() {
   }
 
   function pickHistory(item) {
+    setHistoryMode(true)
     setResult(item?.reponse || '')
     setResultMeta({
+      id: item?.id ?? null,
       date: item?.date || '-',
       type: item?.type_analyse || 'performance'
     })
@@ -236,10 +299,13 @@ export default function Analyse() {
           {result ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <span className={`type-badge ${sanitizeType(resultMeta?.type || 'performance')}`}>
-                  {resultMeta?.type || 'performance'}
+                <span style={{ display: 'flex', alignItems: 'center' }}>
+                  <AnalyseIcon type={sanitizeType(resultMeta?.type || 'performance')} />
                 </span>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)' }}>{resultMeta?.date || '-'}</span>
+                <span className={`type-badge ${sanitizeType(resultMeta?.type || 'performance')}`}>
+                  {LABELS[sanitizeType(resultMeta?.type || 'performance')]}
+                </span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)' }}>{formatAnalyseDate(resultMeta?.date)}</span>
               </div>
 
               {loading ? (
@@ -257,8 +323,8 @@ export default function Analyse() {
             </>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '56px 24px', color: 'var(--text-3)', textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', opacity: '.35' }}>◉</div>
-              <div style={{ fontSize: '.9rem', color: 'var(--text-2)' }}>Aucune analyse pour l'instant</div>
+              <span style={{ opacity: .3 }}><AnalyseIcon type={typeAnalyse} /></span>
+              <div style={{ fontSize: '.9rem', color: 'var(--text-2)' }}>Aucune analyse {LABELS[typeAnalyse].toLowerCase()} aujourd'hui</div>
               <div style={{ fontSize: '.78rem' }}>Lancez une analyse depuis le panneau de droite.</div>
             </div>
           )}
@@ -269,26 +335,26 @@ export default function Analyse() {
             <div className="card-label">Lancer une analyse</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
               {[
-                { type: 'performance', icon: '📈', title: 'Performance', sub: 'Analyse des gains et pertes' },
-                { type: 'arbitrage', icon: '⚖️', title: 'Arbitrage', sub: 'Reequilibrages suggeres' },
-                { type: 'risques', icon: '🛡️', title: 'Risques', sub: 'Concentration & vulnerabilites' }
+                { type: 'performance', title: 'Performance', sub: 'Analyse des gains et pertes' },
+                { type: 'arbitrage', title: 'Arbitrage', sub: 'Reequilibrages suggeres' },
+                { type: 'risques', title: 'Risques', sub: 'Concentration & vulnerabilites' }
               ].map((item) => {
                 const dejaFaite = Boolean(analysesDuJour[item.type])
                 return (
                   <button
                     key={item.type}
                     type="button"
-                    onClick={() => setTypeAnalyse(item.type)}
+                    onClick={() => { setHistoryMode(false); setTypeAnalyse(item.type) }}
                     disabled={loading}
-                    className={`btn-analyse ${getTone(item.type)}${typeAnalyse === item.type ? ' selected' : ''}`}
+                    className={`btn-analyse ${getTone(item.type)}${!historyMode && typeAnalyse === item.type ? ' selected' : ''}`}
                   >
-                    <span className="btn-icon">{item.icon}</span>
+                    <span className="btn-icon"><AnalyseIcon type={item.type} /></span>
                     <div>
                       <div className="btn-label">{item.title}</div>
                       <div className="btn-sub">{item.sub}</div>
                     </div>
                     {dejaFaite && (
-                      <span className="btn-done-today" title="Analyse déjà faite aujourd'hui">✓</span>
+                      <span className="badge badge-dim btn-done-today" style={{ fontSize: '0.62rem' }}>Fait</span>
                     )}
                   </button>
                 )
@@ -306,23 +372,34 @@ export default function Analyse() {
                   Analyse en cours...
                 </>
               ) : quota?.blocked ? (
-                <>⏳ Disponible dans {weeklyCountdown || '...'}</>
+                <>Quota IA hebdo atteint · reset dans {weeklyCountdown || '...'}</>
               ) : dejaFaiteSelected ? (
-                <>⏳ Disponible dans {countdown}</>
+                <>Deja analyse · disponible dans {countdown}</>
               ) : (
-                <>Obtenir un rapport →</>
+                <>Analyser · {LABELS[typeAnalyse]} →</>
               )}
             </button>
+            {quota?.max_analyse_calls != null && (
+              <div style={{
+                textAlign: 'center',
+                fontSize: '0.72rem',
+                fontFamily: 'var(--mono)',
+                color: 'var(--text2)',
+                marginTop: 6
+              }}>
+                {quota.analyse_calls} / {quota.max_analyse_calls} analyses cette semaine
+              </div>
+            )}
           </div>
 
-          {history.length > 1 && (
+          {history.filter(i => i.id !== resultMeta?.id).length > 0 && (
             <div className="card">
               <div className="card-label">Historique</div>
               <div style={{ marginTop: 8 }}>
-                {[...history].reverse().slice(1).map((item) => (
+                {history.filter(i => i.id !== resultMeta?.id).map((item, idx) => (
                   <div
-                    key={item.id}
-                    className="hist-item"
+                    key={item.id ?? `hist-${idx}`}
+                    className={`hist-item${item.id != null && item.id === resultMeta?.id ? ' active' : ''}`}
                     role="button"
                     tabIndex={0}
                     onClick={() => pickHistory(item)}
@@ -335,9 +412,9 @@ export default function Analyse() {
                   >
                     <div className="hist-meta">
                       <span className={`type-badge ${sanitizeType(item.type_analyse)}`}>
-                        {item.type_analyse}
+                        {LABELS[sanitizeType(item.type_analyse)] || item.type_analyse}
                       </span>
-                      <span className="hist-date">{item.date}</span>
+                      <span className="hist-date">{formatAnalyseDate(item.date)}</span>
                     </div>
                     <div className="hist-excerpt">
                       {excerpt(item.reponse).slice(0, 100)}{excerpt(item.reponse).length > 100 ? '…' : ''}
