@@ -1,8 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
+
+const BANNER_H = 36
 
 export default function DemoBanner({ isDemo }) {
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    document.body.style.paddingTop = isDemo ? `${BANNER_H}px` : ''
+    return () => { document.body.style.paddingTop = '' }
+  }, [isDemo])
 
   if (!isDemo) return null
 
@@ -12,8 +19,7 @@ export default function DemoBanner({ isDemo }) {
     try {
       await api.post('/demo/reset')
       window.location.href = '/'
-    } catch (err) {
-      console.error(err)
+    } catch {
       setLoading(false)
     }
   }
@@ -21,68 +27,44 @@ export default function DemoBanner({ isDemo }) {
   return (
     <div style={{
       position: 'fixed',
-      bottom: 0,
+      top: 0,
       left: 0,
       right: 0,
-      zIndex: 9999,
-      background: 'rgba(18, 22, 28, 0.97)',
-      borderTop: '1px solid rgba(201, 168, 76, 0.3)',
-      backdropFilter: 'blur(12px)',
+      height: BANNER_H,
+      zIndex: 99999,
+      background: 'var(--green)',
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '10px 20px',
-      gap: 16,
+      justifyContent: 'center',
+      gap: 20,
+      padding: '0 20px',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{
-          fontFamily: 'var(--mono)',
-          fontSize: '.6rem',
-          letterSpacing: '.14em',
-          color: 'var(--gold)',
-          background: 'rgba(201,168,76,.1)',
-          border: '1px solid rgba(201,168,76,.25)',
-          borderRadius: 6,
-          padding: '2px 8px',
-          flexShrink: 0,
-        }}>
-          DECOUVERTE
-        </div>
-        <span style={{ fontSize: '.88rem', color: 'var(--text-3)' }}>
-          Vous visualisez des données fictives. Vos vraies données ne sont pas affectées.
-        </span>
-      </div>
+      <span style={{
+        fontSize: '.82rem',
+        fontWeight: 600,
+        color: '#0a0a0a',
+        letterSpacing: '.01em',
+      }}>
+        Vous etes en mode Visite libre — les donnees sont fictives.
+      </span>
       <button
         type="button"
         onClick={handleReset}
         disabled={loading}
         style={{
-          flexShrink: 0,
-          fontFamily: 'var(--mono)',
           fontSize: '.78rem',
-          fontWeight: 600,
-          color: 'var(--gold)',
-          background: 'rgba(201,168,76,.08)',
-          border: '1px solid rgba(201,168,76,.3)',
-          borderRadius: 8,
-          padding: '6px 14px',
+          fontWeight: 700,
+          color: 'var(--green)',
+          background: '#0a0a0a',
+          border: 'none',
+          borderRadius: 6,
+          padding: '3px 12px',
           cursor: loading ? 'wait' : 'pointer',
-          opacity: loading ? 0.6 : 1,
+          opacity: loading ? 0.7 : 1,
           whiteSpace: 'nowrap',
-          transition: 'background .15s, border-color .15s',
-        }}
-        onMouseEnter={e => {
-          if (!loading) {
-            e.currentTarget.style.background = 'rgba(201,168,76,.15)'
-            e.currentTarget.style.borderColor = 'rgba(201,168,76,.5)'
-          }
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.background = 'rgba(201,168,76,.08)'
-          e.currentTarget.style.borderColor = 'rgba(201,168,76,.3)'
         }}
       >
-        {loading ? 'Purge en cours...' : 'Quitter la decouverte'}
+        {loading ? 'Purge...' : 'Quitter'}
       </button>
     </div>
   )
