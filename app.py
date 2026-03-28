@@ -3468,7 +3468,10 @@ def api_data_dir():
 
 @app.route("/api/profil")
 def api_profil_get():
-    return jsonify(db.get_profil())
+    profil = db.get_profil()
+    profil["profil_exists"] = db.profil_exists()
+    profil["is_demo"] = db.get_is_demo()
+    return jsonify(profil)
 
 
 @app.route("/api/ia/quota")

@@ -2348,6 +2348,13 @@ def profil_exists():
     return row is not None
 
 
+def get_is_demo():
+    conn = get_db()
+    row = conn.execute("SELECT is_demo FROM profil WHERE id=1").fetchone()
+    conn.close()
+    return bool(row and row["is_demo"])
+
+
 def get_profil():
     conn = get_db()
     row = conn.execute("SELECT * FROM profil WHERE id=1").fetchone()
