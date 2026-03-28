@@ -20,7 +20,7 @@ if "%1"=="--fast"     set NEED_BUILD=0
 if "%1"=="--no-build" set NEED_BUILD=0
 
 if !NEED_BUILD!==1 if exist "%BINARY%" (
-    powershell -NoProfile -Command "$bin=(Get-Item '%BINARY%').LastWriteTime; $src='app.py','database.py','grok.py','prices.py','calculs.py','emails.py','requirements.txt'; $changed=$src|Where-Object{(Test-Path $_)-and((Get-Item $_).LastWriteTime -gt $bin)}; if($changed){Write-Host \"Modifie: $($changed -join', ')\"; exit 1}else{exit 0}"
+    powershell -NoProfile -Command "$bin=(Get-Item '%BINARY%').LastWriteTime; $src='app.py','database.py','grok.py','prices.py','calculs.py','emails.py','requirements.txt'; $changed=$src|Where-Object{(Test-Path $_)-and((Get-Item $_).LastWriteTime -gt $bin)}; if($changed){exit 1}else{exit 0}"
     if !errorlevel!==0 (
         set NEED_BUILD=0
         echo [2] Backend inchange -- build ignore.
