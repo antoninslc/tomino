@@ -1,81 +1,137 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
 export default function Welcome() {
   const navigate = useNavigate()
   const [loadingDemo, setLoadingDemo] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState('')
+  const fileRef = useRef(null)
 
   const handleStartDemo = async () => {
     try {
       setLoadingDemo(true)
       await api.post('/demo/inject')
-      window.location.href = '/' // hard reload
+      window.location.href = '/'
     } catch (err) {
       console.error(err)
       setLoadingDemo(false)
     }
   }
 
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportError('')
+    setImporting(true)
+    try {
+      const formData = new FormData()
+      formData.append('backup', file)
+      formData.append('confirm_restore', '1')
+      const res = await fetch('/api/import/backup', { method: 'POST', body: formData })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok || payload?.ok === false) throw new Error(payload?.erreur || 'Import impossible')
+      window.location.href = '/'
+    } catch (err) {
+      setImportError(err?.message || 'Fichier invalide.')
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-bg text-text p-8 flex flex-col items-center justify-center">
-      <div className="max-w-5xl w-full">
-        <div className="text-center mb-16">
-          <h1 className="text-5xl font-bold mb-6">Bienvenue sur Tomino</h1>
-          <p className="text-text2 text-xl max-w-2xl mx-auto">
-            Votre superviseur de patrimoine garantissant 100% de souveraineté sur vos données financières.
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)', padding: '3rem 2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ maxWidth: 1060, width: '100%' }}>
+        <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
+          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3rem)', fontWeight: 800, letterSpacing: '-0.04em', marginBottom: '1rem' }}>
+            Bienvenue sur Tomino
+          </h1>
+          <p style={{ color: 'var(--text-3)', fontSize: '1.1rem', maxWidth: 560, margin: '0 auto', lineHeight: 1.6 }}>
+            Votre superviseur de patrimoine — 100% local, 100% vos données.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* Option 1: Nouveau profil */}
-          <div 
-            className="card p-8 flex flex-col h-full cursor-pointer hover:-translate-y-1 transition-transform hover:shadow-lg border border-transparent hover:border-gold"
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+          {/* Créer mon espace */}
+          <button
+            type="button"
+            className="card"
             onClick={() => navigate('/onboarding')}
+            style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid var(--line)', transition: 'border-color .15s', padding: 28 }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--gold)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--line)'}
           >
-            <h2 className="text-2xl font-bold mb-4">Créer mon espace</h2>
-            <p className="text-text2 mb-8 flex-grow leading-relaxed">
-              Démarrez de zéro en configurant votre profil d'investisseur unique au travers d'un court questionnaire.
+            <div style={{ fontFamily: 'var(--mono)', fontSize: '.6rem', color: 'var(--gold)', letterSpacing: '.14em', marginBottom: 14 }}>NOUVEAU</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>Créer mon espace</div>
+            <p style={{ color: 'var(--text-3)', fontSize: '.88rem', lineHeight: 1.55, marginBottom: 20 }}>
+              Configurez votre profil investisseur et démarrez de zéro.
             </p>
-            <div className="text-base font-semibold text-gold mt-auto flex items-center justify-between">
-              <span>Démarrer</span>
-              <span>&rarr;</span>
-            </div>
-          </div>
+            <div style={{ color: 'var(--gold)', fontSize: '.9rem', fontWeight: 600 }}>Démarrer &rarr;</div>
+          </button>
 
-          {/* Option 2: Démo */}
-          <div 
-            className="card p-8 flex flex-col h-full cursor-pointer hover:-translate-y-1 transition-transform hover:shadow-lg border border-transparent hover:border-text relative overflow-hidden"
-            onClick={loadingDemo ? undefined : handleStartDemo}
-            style={{ opacity: loadingDemo ? 0.7 : 1 }}
+          {/* Restaurer une sauvegarde */}
+          <button
+            type="button"
+            className="card"
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            style={{ textAlign: 'left', cursor: importing ? 'wait' : 'pointer', border: '1px solid var(--line)', transition: 'border-color .15s', padding: 28, opacity: importing ? 0.7 : 1 }}
+            onMouseEnter={e => { if (!importing) e.currentTarget.style.borderColor = 'var(--green)' }}
+            onMouseLeave={e => e.currentTarget.style.borderColor = importError ? 'var(--red)' : 'var(--line)'}
           >
-            <div className="absolute top-0 right-0 bg-bg2 text-xs px-3 py-1 rounded-bl-lg font-mono text-text2 uppercase tracking-wider font-bold">
-              Découverte
-            </div>
-            <h2 className="text-2xl font-bold mb-4">Visite libre</h2>
-            <p className="text-text2 mb-8 flex-grow leading-relaxed">
-              Explorez Tomino avec un portefeuille et un historique factices pour découvrir toutes les fonctionnalités instantanément.
+            <div style={{ fontFamily: 'var(--mono)', fontSize: '.6rem', color: 'var(--green)', letterSpacing: '.14em', marginBottom: 14 }}>SAUVEGARDE</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>Restaurer mes données</div>
+            <p style={{ color: 'var(--text-3)', fontSize: '.88rem', lineHeight: 1.55, marginBottom: 20 }}>
+              Importez un fichier <span style={{ fontFamily: 'var(--mono)', fontSize: '.82rem' }}>.tomino-backup</span> pour retrouver votre patrimoine existant.
             </p>
-            <div className="text-base font-semibold text-text mt-auto flex items-center justify-between">
-              <span>{loadingDemo ? 'Génération...' : 'Lancer le mode démo'}</span>
-              <span>&rarr;</span>
-            </div>
-          </div>
+            {importError
+              ? <div style={{ color: 'var(--red)', fontSize: '.82rem', fontFamily: 'var(--mono)' }}>{importError}</div>
+              : <div style={{ color: 'var(--green)', fontSize: '.9rem', fontWeight: 600 }}>{importing ? 'Import en cours...' : 'Choisir un fichier &rarr;'}</div>
+            }
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".tomino-backup,.zip"
+              style={{ display: 'none' }}
+              onChange={handleImport}
+            />
+          </button>
 
-          {/* Option 3: Connexion Tomino+ */}
-          <div 
-            className="card p-8 flex flex-col h-full cursor-pointer hover:-translate-y-1 transition-transform hover:shadow-lg border border-transparent hover:border-green"
+          {/* J'ai un compte */}
+          <button
+            type="button"
+            className="card"
             onClick={() => navigate('/settings/sync?login=1')}
+            style={{ textAlign: 'left', cursor: 'pointer', border: '1px solid var(--line)', transition: 'border-color .15s', padding: 28 }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(24,195,126,.4)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--line)'}
           >
-            <h2 className="text-2xl font-bold mb-4">J'ai un compte</h2>
-            <p className="text-text2 mb-8 flex-grow leading-relaxed">
-              Connectez-vous à votre compte Tomino + pour synchroniser vos données et retrouver votre patrimoine.
+            <div style={{ fontFamily: 'var(--mono)', fontSize: '.6rem', color: 'var(--green)', letterSpacing: '.14em', marginBottom: 14 }}>TOMINO +</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10 }}>J'ai un compte</div>
+            <p style={{ color: 'var(--text-3)', fontSize: '.88rem', lineHeight: 1.55, marginBottom: 20 }}>
+              Connectez-vous pour synchroniser vos données sur plusieurs appareils.
             </p>
-            <div className="text-base font-semibold text-green mt-auto flex items-center justify-between">
-              <span>Se connecter</span>
-              <span>&rarr;</span>
-            </div>
-          </div>
+            <div style={{ color: 'var(--green)', fontSize: '.9rem', fontWeight: 600 }}>Se connecter &rarr;</div>
+          </button>
+
+          {/* Visite libre */}
+          <button
+            type="button"
+            className="card"
+            onClick={loadingDemo ? undefined : handleStartDemo}
+            disabled={loadingDemo}
+            style={{ textAlign: 'left', cursor: loadingDemo ? 'wait' : 'pointer', border: '1px solid var(--line)', transition: 'border-color .15s', padding: 28, opacity: loadingDemo ? 0.7 : 1 }}
+            onMouseEnter={e => { if (!loadingDemo) e.currentTarget.style.borderColor = 'var(--line)' }}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--line)'}
+          >
+            <div style={{ fontFamily: 'var(--mono)', fontSize: '.6rem', color: 'var(--text-3)', letterSpacing: '.14em', marginBottom: 14 }}>DECOUVERTE</div>
+            <div style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 10, color: 'var(--text-2)' }}>Visite libre</div>
+            <p style={{ color: 'var(--text-3)', fontSize: '.88rem', lineHeight: 1.55, marginBottom: 20 }}>
+              Explorez avec un portefeuille fictif. Les données seront effaçables depuis les paramètres.
+            </p>
+            <div style={{ color: 'var(--text-3)', fontSize: '.9rem', fontWeight: 500 }}>{loadingDemo ? 'Génération...' : 'Lancer le mode démo &rarr;'}</div>
+          </button>
         </div>
       </div>
     </div>

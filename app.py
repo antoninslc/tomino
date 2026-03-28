@@ -3454,6 +3454,18 @@ def api_assurance_vie_delete(contrat_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/data-dir")
+def api_data_dir():
+    import sys
+    data_dir = db.get_data_dir()
+    return jsonify({
+        "ok": True,
+        "data_dir": data_dir,
+        "db_path": db.DB_PATH,
+        "frozen": getattr(sys, "frozen", False),
+    })
+
+
 @app.route("/api/profil")
 def api_profil_get():
     return jsonify(db.get_profil())

@@ -1,5 +1,26 @@
+import { useEffect, useState } from 'react'
+
 export default function ExportPage({ ctx }) {
   const { BackHeader, navigate } = ctx
+  const [dataDir, setDataDir] = useState(null)
+  const [frozen, setFrozen] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    fetch('/api/data-dir')
+      .then(r => r.json())
+      .then(d => { if (mounted) { setDataDir(d?.data_dir || null); setFrozen(Boolean(d?.frozen)) } })
+      .catch(() => {})
+    return () => { mounted = false }
+  }, [])
+
+  const handleOpenFolder = async () => {
+    if (!dataDir) return
+    try {
+      const { open } = await import('@tauri-apps/api/shell')
+      await open(dataDir)
+    } catch {}
+  }
 
   return (
     <>
@@ -49,6 +70,40 @@ export default function ExportPage({ ctx }) {
           </div>
           <span style={{ color: 'var(--text2)', fontSize: '1.2rem' }}>›</span>
         </button>
+
+        {dataDir && (
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
+            <div className="settings-row-info" style={{ width: '100%' }}>
+              <div className="settings-row-title">Dossier de données</div>
+              <div className="settings-row-sub" style={{ marginTop: 6 }}>
+                Vos données locales (<span style={{ fontFamily: 'var(--mono)', fontSize: '.78rem' }}>patrimoine.db</span>) sont stockées ici :
+              </div>
+              <div style={{
+                fontFamily: 'var(--mono)',
+                fontSize: '.78rem',
+                color: 'var(--text-2)',
+                background: 'rgba(255,255,255,.03)',
+                border: '1px solid var(--line)',
+                borderRadius: 8,
+                padding: '7px 12px',
+                marginTop: 8,
+                wordBreak: 'break-all',
+              }}>
+                {dataDir}
+              </div>
+            </div>
+            {frozen && (
+              <button
+                type="button"
+                className="btn"
+                onClick={handleOpenFolder}
+                style={{ fontSize: '.82rem', padding: '6px 14px' }}
+              >
+                Ouvrir le dossier
+              </button>
+            )}
+          </div>
+        )}
       </section>
     </>
   )
