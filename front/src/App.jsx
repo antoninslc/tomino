@@ -250,7 +250,7 @@ export default function App() {
         const need = hasFlag ? !profil.profil_exists : (!doneLocally && profileLooksDefault(profil))
         if (mounted) {
           setNeedOnboarding(need)
-          setIsDemo(profil?.is_demo === 1)
+          setIsDemo(Boolean(profil?.is_demo))
         }
       } catch {
         if (mounted) setNeedOnboarding(false)

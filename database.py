@@ -2352,7 +2352,7 @@ def get_is_demo():
     conn = get_db()
     row = conn.execute("SELECT is_demo FROM profil WHERE id=1").fetchone()
     conn.close()
-    return bool(row and row["is_demo"])
+    return 1 if (row and row["is_demo"]) else 0
 
 
 def get_profil():
