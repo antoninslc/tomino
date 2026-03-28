@@ -7,8 +7,13 @@ export default function DemoBanner({ isDemo }) {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    const h = isDemo ? `${BANNER_H}px` : '0px'
+    document.documentElement.style.setProperty('--demo-banner-h', h)
     document.body.style.paddingTop = isDemo ? `${BANNER_H}px` : ''
-    return () => { document.body.style.paddingTop = '' }
+    return () => {
+      document.documentElement.style.setProperty('--demo-banner-h', '0px')
+      document.body.style.paddingTop = ''
+    }
   }, [isDemo])
 
   if (!isDemo) return null
