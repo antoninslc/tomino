@@ -4,7 +4,7 @@ set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 echo === Tomino Desktop - Mode Developpeur ===
 echo.
 
-echo [1] Activation de l'environnement virtuel...
+echo [1] Activation de l environnement virtuel...
 if not exist ".venv\Scripts\activate.bat" (
     echo ERREUR: Environnement virtuel introuvable.
     pause
@@ -29,7 +29,7 @@ if !NEED_BUILD!==1 if exist "%BINARY%" (
 )
 
 if !NEED_BUILD!==1 (
-    echo [2] Build Backend ^(PyInstaller ^- peut prendre 2-3 min^)...
+    echo [2] Build Backend PyInstaller...
     call python -m PyInstaller --onefile --noconsole --hidden-import=stripe --hidden-import=resend --hidden-import=cryptography --hidden-import=zoneinfo --hidden-import=tzdata --collect-all=tzdata --name tomino-backend app.py
     if !errorlevel! neq 0 (
         echo ERREUR: Build Backend echoue.
@@ -43,7 +43,9 @@ if !NEED_BUILD!==1 (
 )
 
 echo [3] Nettoyage des processus fantomes...
-taskkill /IM tomino-backend* /F >nul 2>&1
+taskkill /F /IM "tomino-backend-x86_64-pc-windows-msvc.exe" >nul 2>&1
+taskkill /F /IM "tomino-backend.exe" >nul 2>&1
+timeout /t 2 /nobreak >nul
 
 echo [4] Lancement Tauri dev...
 cd front
