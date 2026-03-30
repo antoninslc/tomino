@@ -1,40 +1,63 @@
-# Python
+# ==================== Python ====================
 .venv/
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
+*.db
+*.db.bak
+*.db.pre-imp*
+patrimoine.db*
 
-# Données locales
-patrimoine.db
+# ==================== Antigravity / IA ====================
+.antigravity/
+.claude/
+.cursor/
+.windsurf/
+.vscode/          # même si tu utilises Antigravity
+
+# ==================== Builds & Compilation ====================
+build/
+dist/
+*.spec
+front/dist/
+front/build/
+front/src-tauri/target/
+front/src-tauri/binaries/
+
+# ==================== Données & Backups ====================
 prix_cache.json
 *.bak
 *.tomino-backup
 .tomino-backups/
+*.backup
+*.old
+*.tmp
 
-# Secrets — NE JAMAIS COMMITER
+# ==================== Secrets & Environnement ====================
 .env
 *.key
 *.key.pub
-~/.tauri/
-front/~/
+*.pem
+secrets/
 
-# Builds compilés
-dist/
-build/
-*.spec
-front/dist/
-front/src-tauri/target/
-front/src-tauri/binaries/
+# ==================== Node.js / Front (si tu en as) ====================
+front/node_modules/
+front/.npm/
+front/.yarn/
 
-# Logs
+# ==================== Logs & Erreurs ====================
 *.log
 build_err.log
+logs/
+*.log.*
 
-# VS Code / éditeurs
-tempCodeRunnerFile.py
-tempCodeRunnerFile.bat
-retry_cargo.bat
-.vscode/
-
-# Divers
+# ==================== Divers ====================
+.DS_Store
+Thumbs.db
+*.code-workspace
 front/.gitkeep
+
+# ==================== GitHub / Autres ====================
+.github/          # si tu ne veux pas indexer les workflows localement
