@@ -23,7 +23,7 @@ export default function DemoBanner({ isDemo }) {
     setLoading(true)
     try {
       await api.post('/demo/reset')
-      window.location.href = '/'
+      window.location.href = '/welcome'
     } catch {
       setLoading(false)
     }
@@ -50,7 +50,7 @@ export default function DemoBanner({ isDemo }) {
         color: '#0a0a0a',
         letterSpacing: '.01em',
       }}>
-        Vous etes en mode Visite libre — les donnees sont fictives.
+        Vous êtes en mode Visite libre — les données sont fictives.
       </span>
       <button
         type="button"

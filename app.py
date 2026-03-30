@@ -55,8 +55,15 @@ _RESUME_CACHE = {
 }
 _last_dividend_check = None
 
-IA_WEEKLY_BUDGET_EUR = 0.25
-IA_COST_EUR_PER_1K_TOKENS = float(os.getenv("XAI_COST_EUR_PER_1K_TOKENS", "0.002"))
+IA_WEEKLY_BUDGET_EUR_PAR_TIER: dict[str, float] = {
+    "free":        0.05,
+    "tomino_plus": 0.25,
+}
+# Tarifs Grok-4-1-fast-reasoning (source : xAI)
+# Surchargeable via variables d'environnement si les tarifs changent.
+IA_COST_INPUT_EUR_PER_1K        = float(os.getenv("XAI_COST_INPUT_EUR_PER_1K",        "0.0002"))
+IA_COST_CACHED_INPUT_EUR_PER_1K = float(os.getenv("XAI_COST_CACHED_INPUT_EUR_PER_1K", "0.00005"))
+IA_COST_OUTPUT_EUR_PER_1K       = float(os.getenv("XAI_COST_OUTPUT_EUR_PER_1K",       "0.0005"))
 RESUME_CACHE_TTL = 30
 DISABLE_STARTUP_TASKS = os.getenv("TOMINO_DISABLE_STARTUP_TASKS", "0") == "1"
 AUTH_SESSION_DAYS = int(os.getenv("TOMINO_AUTH_SESSION_DAYS", "30"))
@@ -159,30 +166,31 @@ _MAX_ANALYSE_CALLS_PAR_TIER: dict[str, int | None] = {
 
 def _compute_ia_quota(now: datetime.datetime | None = None, tier: str | None = None) -> dict:
     current = now or _paris_now()
+    if tier is None:
+        tier = db.get_profil().get("tier", "free")
+    budget = IA_WEEKLY_BUDGET_EUR_PAR_TIER.get(str(tier), IA_WEEKLY_BUDGET_EUR_PAR_TIER["free"])
+
     week_start, week_end = _week_window_paris(current)
     summary = db.get_ia_usage_summary(
         week_start.strftime("%Y-%m-%d %H:%M:%S"),
         week_end.strftime("%Y-%m-%d %H:%M:%S"),
     )
     spent = float(summary.get("cost_eur") or 0.0)
-    remaining = max(0.0, IA_WEEKLY_BUDGET_EUR - spent)
-    blocked = spent >= IA_WEEKLY_BUDGET_EUR
+    remaining = max(0.0, budget - spent)
+    blocked = spent >= budget
 
     by_endpoint = summary.get("by_endpoint") or []
     analyse_calls = next(
         (int(e.get("calls") or 0) for e in by_endpoint if e.get("endpoint") == "analyse"),
         0,
     )
-
-    if tier is None:
-        tier = db.get_profil().get("tier", "free")
     max_analyse_calls = _MAX_ANALYSE_CALLS_PAR_TIER.get(str(tier), None)
 
     return {
         "week_start": week_start.isoformat(),
         "week_end": week_end.isoformat(),
         "next_reset": week_end.isoformat(),
-        "budget_eur": round(IA_WEEKLY_BUDGET_EUR, 4),
+        "budget_eur": round(budget, 4),
         "cost_eur": round(spent, 6),
         "remaining_eur": round(remaining, 6),
         "total_tokens": int(summary.get("total_tokens") or 0),
@@ -198,13 +206,15 @@ def _compute_ia_quota(now: datetime.datetime | None = None, tier: str | None = N
 
 def _quota_error_message(quota: dict) -> str:
     next_reset = quota.get("next_reset")
+    budget = quota.get("budget_eur", 0.05)
     try:
         next_dt = datetime.datetime.fromisoformat(str(next_reset)).astimezone(PARIS_TZ)
         when = next_dt.strftime("%d/%m à %H:%M")
     except Exception:
         when = "en début de semaine prochaine"
+    budget_str = f"{budget:.2f} €".replace(".", ",")
     return (
-        "Limite hebdomadaire IA atteinte (0,25 € pour chat + analyses). "
+        f"Limite hebdomadaire IA atteinte ({budget_str} de crédit utilisé). "
         f"Tomino sera de nouveau disponible {when}."
     )
 
@@ -526,11 +536,19 @@ def _invalidate_resume_cache() -> None:
         _RESUME_CACHE["timestamp"] = 0.0
 
 
-def _record_ia_usage(endpoint: str, tier: str, input_text: str, output_text: str):
-    input_tokens = _estimate_tokens_from_text(input_text)
-    output_tokens = _estimate_tokens_from_text(output_text)
-    total_tokens = input_tokens + output_tokens
-    cost_eur = (total_tokens / 1000.0) * IA_COST_EUR_PER_1K_TOKENS
+def _record_ia_usage(endpoint: str, tier: str, input_tokens: int, output_tokens: int, cached_tokens: int = 0):
+    """Enregistre la consommation réelle de tokens retournée par l'API xAI.
+    Les tokens cachés (prompt_tokens_details.cached_tokens) sont facturés 4x moins cher."""
+    input_tokens   = max(0, int(input_tokens   or 0))
+    output_tokens  = max(0, int(output_tokens  or 0))
+    cached_tokens  = max(0, int(cached_tokens  or 0))
+    non_cached     = max(0, input_tokens - cached_tokens)
+    total_tokens   = input_tokens + output_tokens
+    cost_eur = (
+        (non_cached    / 1000.0) * IA_COST_INPUT_EUR_PER_1K
+        + (cached_tokens / 1000.0) * IA_COST_CACHED_INPUT_EUR_PER_1K
+        + (output_tokens / 1000.0) * IA_COST_OUTPUT_EUR_PER_1K
+    )
     db.add_ia_usage({
         "endpoint": endpoint,
         "tier": tier,
@@ -4028,9 +4046,185 @@ def api_alertes_delete(alerte_id):
     return jsonify({"ok": True})
 
 
+@app.route("/api/alertes/<int:alerte_id>/reactiver", methods=["POST"])
+def api_alertes_reactiver(alerte_id):
+    db.reactiver_alerte(alerte_id)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/historique")
 def api_historique():
     return jsonify(db.get_historique(90))
+
+
+@app.route("/api/rapport")
+def api_rapport():
+    mois = request.args.get("mois", "").strip()
+    # Valider et normaliser YYYY-MM
+    if not re.match(r"^\d{4}-\d{2}$", mois):
+        now = datetime.datetime.now()
+        mois = now.strftime("%Y-%m")
+
+    debut = mois + "-01"
+    # Dernier jour du mois
+    try:
+        y, m = int(mois[:4]), int(mois[5:7])
+        if m == 12:
+            fin_dt = datetime.date(y + 1, 1, 1) - datetime.timedelta(days=1)
+        else:
+            fin_dt = datetime.date(y, m + 1, 1) - datetime.timedelta(days=1)
+        fin = str(fin_dt)
+    except Exception:
+        fin = mois + "-31"
+
+    conn = db.get_db()
+
+    # Historique du mois (évolution patrimoine)
+    hist_rows = conn.execute(
+        "SELECT date, valeur_totale, valeur_pea, valeur_cto, valeur_or, valeur_livrets, valeur_assurance_vie "
+        "FROM historique WHERE date >= ? AND date <= ? ORDER BY date ASC",
+        (debut, fin),
+    ).fetchall()
+    historique = [dict(r) for r in hist_rows]
+
+    # Valeur début et fin de mois
+    valeur_debut = historique[0]["valeur_totale"] if historique else None
+    valeur_fin = historique[-1]["valeur_totale"] if historique else None
+    variation = None
+    variation_pct = None
+    if valeur_debut is not None and valeur_fin is not None:
+        variation = round(valeur_fin - valeur_debut, 2)
+        variation_pct = round((variation / valeur_debut * 100), 2) if valeur_debut else 0
+
+    # Mouvements du mois
+    mov_rows = conn.execute(
+        """SELECT m.*, a.ticker, a.nom AS actif_nom
+           FROM mouvements m
+           LEFT JOIN actifs a ON a.id = m.actif_id
+           WHERE m.date_operation >= ? AND m.date_operation <= ?
+           ORDER BY m.date_operation DESC, m.id DESC""",
+        (debut, fin),
+    ).fetchall()
+    mouvements = [dict(r) for r in mov_rows]
+
+    # Dividendes du mois
+    div_rows = conn.execute(
+        "SELECT * FROM dividendes WHERE date_versement >= ? AND date_versement <= ? ORDER BY date_versement DESC, id DESC",
+        (debut, fin),
+    ).fetchall()
+    dividendes = [dict(r) for r in div_rows]
+
+    # Alertes déclenchées ce mois
+    alerte_rows = conn.execute(
+        "SELECT * FROM alertes WHERE declenchee_le >= ? AND declenchee_le <= ? ORDER BY declenchee_le DESC",
+        (debut + " 00:00:00", fin + " 23:59:59"),
+    ).fetchall()
+    alertes = [dict(r) for r in alerte_rows]
+
+    conn.close()
+
+    # Agrégats dividendes
+    total_dividendes = round(sum(d.get("montant_net") or 0 for d in dividendes), 2)
+
+    # Investissements nets (achats - ventes)
+    total_achats = round(sum(
+        (m.get("montant_net") or 0) for m in mouvements if m.get("type_operation") == "achat"
+    ), 2)
+    total_ventes = round(sum(
+        (m.get("montant_net") or 0) for m in mouvements if m.get("type_operation") == "vente"
+    ), 2)
+    pv_realisee = round(sum(
+        (m.get("pv_realisee") or 0) for m in mouvements if m.get("pv_realisee") is not None
+    ), 2)
+
+    return jsonify({
+        "mois": mois,
+        "debut": debut,
+        "fin": fin,
+        "historique": historique,
+        "valeur_debut": valeur_debut,
+        "valeur_fin": valeur_fin,
+        "variation": variation,
+        "variation_pct": variation_pct,
+        "mouvements": mouvements,
+        "dividendes": dividendes,
+        "alertes": alertes,
+        "stats": {
+            "total_dividendes": total_dividendes,
+            "total_achats": total_achats,
+            "total_ventes": total_ventes,
+            "pv_realisee": pv_realisee,
+            "nb_mouvements": len(mouvements),
+            "nb_dividendes": len(dividendes),
+            "nb_alertes": len(alertes),
+        },
+    })
+
+
+@app.route("/api/stock/search")
+def api_stock_search():
+    q = request.args.get("q", "").strip()
+    if len(q) < 1:
+        return jsonify([])
+    return jsonify(prices.search_tickers(q))
+
+
+@app.route("/api/stock/<path:ticker>")
+def api_stock_fundamentals(ticker):
+    ticker = str(ticker).strip().upper()
+    if not ticker:
+        return jsonify({"ok": False, "erreur": "Ticker manquant"}), 400
+    force = request.args.get("force", "0") == "1"
+    data = prices.get_stock_fundamentals(ticker, force=force)
+    if not data:
+        return jsonify({
+            "ok": False,
+            "erreur": f"Impossible de récupérer les données pour {ticker}. Vérifiez le ticker ou réessayez dans quelques secondes.",
+        }), 404
+    return jsonify({"ok": True, **data})
+
+
+@app.route("/api/stock/chat/stream", methods=["POST"])
+def api_stock_chat_stream():
+    payload = request.get_json(silent=True) or {}
+    messages = payload.get("messages", [])
+    stock_data = payload.get("stock_data", {})
+
+    if not isinstance(messages, list):
+        return jsonify({"ok": False, "erreur": "Format invalide"}), 400
+
+    if not _xai_api_key_configured():
+        return jsonify({
+            "ok": False,
+            "erreur": "Clé API xAI absente. Configurez XAI_API_KEY dans le fichier .env puis redémarrez Tomino.",
+        }), 503
+
+    conv_id = str(payload.get("conv_id") or "").strip() or None
+    tier = db.get_profil().get("tier", "free")
+    quota = _compute_ia_quota(tier=tier)
+    if quota["blocked"]:
+        return jsonify({"ok": False, "erreur": _quota_error_message(quota), "quota": quota}), 429
+
+    @stream_with_context
+    def generate():
+        chunks = []
+        usage = {}
+        for chunk in grok.stock_chat_stream(messages, stock_data, tier=tier, conv_id=conv_id):
+            if isinstance(chunk, dict) and "__usage__" in chunk:
+                usage = chunk["__usage__"]
+                continue
+            chunks.append(chunk)
+            yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"
+        full_output = "".join(chunks)
+        if not str(full_output or "").startswith("[ERREUR]"):
+            _record_ia_usage("stock_chat", tier, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), usage.get("cached_tokens", 0))
+        yield "data: " + json.dumps({"done": True}, ensure_ascii=False) + "\n\n"
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/api/cours/<ticker>")
@@ -4176,13 +4370,13 @@ def api_grok_analyser():
     # Le tier est toujours lu depuis le profil serveur, jamais depuis le client
     tier = db.get_profil().get("tier", "free")
 
-    quota = _compute_ia_quota()
+    quota = _compute_ia_quota(tier=tier)
     if quota["blocked"]:
         return jsonify({"ok": False, "erreur": _quota_error_message(quota), "quota": quota}), 429
 
     resume = calcul_resume()
     actifs = [a for a in _enrichir_avec_tri(db.get_actifs()) if float(a.get("quantite") or 0) > 0]
-    reponse = grok.analyser(type_analyse, resume, actifs, tier=tier)
+    reponse, usage = grok.analyser(type_analyse, resume, actifs, tier=tier)
 
     if str(reponse or "").startswith("[ERREUR]"):
         return jsonify({
@@ -4193,8 +4387,7 @@ def api_grok_analyser():
 
     analyse_id = None
     if not str(reponse or "").startswith("[ERREUR]"):
-        input_text = json.dumps({"type_analyse": type_analyse, "resume": resume, "actifs": actifs}, ensure_ascii=False)
-        _record_ia_usage("analyse", tier, input_text, reponse)
+        _record_ia_usage("analyse", tier, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), usage.get("cached_tokens", 0))
         last = db.get_analyses(1)
         analyse_id = last[0]["id"] if last else None
 
@@ -4222,13 +4415,13 @@ def api_chat():
         }), 503
 
     tier = db.get_profil().get("tier", "free")
-    quota = _compute_ia_quota()
+    quota = _compute_ia_quota(tier=tier)
     if quota["blocked"]:
         return jsonify({"ok": False, "erreur": _quota_error_message(quota), "quota": quota}), 429
 
     resume = calcul_resume()
     actifs = [a for a in _enrichir_avec_tri(db.get_actifs()) if float(a.get("quantite") or 0) > 0]
-    reponse = grok.chat(messages, resume, actifs=actifs, tier=tier)
+    reponse, usage = grok.chat(messages, resume, actifs=actifs, tier=tier)
     if str(reponse or "").startswith("[ERREUR]"):
         return jsonify({
             "ok": False,
@@ -4236,9 +4429,7 @@ def api_chat():
             "action": "Vérifiez la clé API xAI, votre connexion réseau, puis réessayez.",
         }), 502
 
-    if not str(reponse or "").startswith("[ERREUR]"):
-        input_text = json.dumps({"messages": messages, "resume": resume}, ensure_ascii=False)
-        _record_ia_usage("chat", tier, input_text, reponse)
+    _record_ia_usage("chat", tier, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), usage.get("cached_tokens", 0))
     return jsonify({"ok": True, "reponse": reponse})
 
 
@@ -4257,23 +4448,27 @@ def api_chat_stream():
         }), 503
 
     tier = db.get_profil().get("tier", "free")
-    quota = _compute_ia_quota()
+    quota = _compute_ia_quota(tier=tier)
     if quota["blocked"]:
         return jsonify({"ok": False, "erreur": _quota_error_message(quota), "quota": quota}), 429
 
+    conv_id = str(payload.get("conv_id") or "").strip() or None
     resume = calcul_resume()
     actifs = [a for a in _enrichir_avec_tri(db.get_actifs()) if float(a.get("quantite") or 0) > 0]
-    input_text = json.dumps({"messages": messages, "resume": resume}, ensure_ascii=False)
 
     @stream_with_context
     def generate():
         chunks = []
-        for chunk in grok.chat_stream(messages, resume, actifs=actifs, tier=tier):
+        usage = {}
+        for chunk in grok.chat_stream(messages, resume, actifs=actifs, tier=tier, conv_id=conv_id):
+            if isinstance(chunk, dict) and "__usage__" in chunk:
+                usage = chunk["__usage__"]
+                continue
             chunks.append(chunk)
             yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"
         full_output = "".join(chunks)
         if not str(full_output or "").startswith("[ERREUR]"):
-            _record_ia_usage("chat", tier, input_text, full_output)
+            _record_ia_usage("chat", tier, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), usage.get("cached_tokens", 0))
         yield "data: " + json.dumps({"done": True}, ensure_ascii=False) + "\n\n"
 
     return Response(

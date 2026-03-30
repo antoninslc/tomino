@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import DateInput from '../components/DateInput'
 import {
   Bar,
   BarChart,
@@ -10,6 +11,7 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import Pagination from '../components/Pagination'
 
 const ENVELOPPE_OPTIONS = [
   { value: '', label: 'Sélectionner...' },
@@ -74,6 +76,7 @@ export default function Dividendes() {
   const [syncMsg, setSyncMsg] = useState('')
   const [showManualForm, setShowManualForm] = useState(false)
   const [error, setError] = useState('')
+  const [page, setPage] = useState(1)
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [focusedIdx, setFocusedIdx] = useState(-1)
@@ -287,6 +290,9 @@ export default function Dividendes() {
   const dividendes = payload?.dividendes || []
   const stats = payload?.stats || {}
 
+  const PAGE_SIZE = 20
+  const dividendesPage = dividendes.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
   return (
     <section>
       {error && (
@@ -376,10 +382,10 @@ export default function Dividendes() {
                 </tr>
               </thead>
               <tbody>
-                {dividendes.map((item) => (
+                {dividendesPage.map((item) => (
                   inlineEditingId === item.id && inlineForm ? (
                     <tr key={item.id}>
-                      <td><input type="date" className="form-input" value={inlineForm.date_versement} onChange={(e) => setInlineForm((f) => ({ ...f, date_versement: e.target.value }))} /></td>
+                      <td><DateInput value={inlineForm.date_versement} onChange={(v) => setInlineForm((f) => ({ ...f, date_versement: v }))} /></td>
                       <td><input className="form-input td-mono" value={inlineForm.ticker} onChange={(e) => setInlineForm((f) => ({ ...f, ticker: e.target.value.toUpperCase() }))} /></td>
                       <td>
                         <input className="form-input" value={inlineForm.nom} onChange={(e) => setInlineForm((f) => ({ ...f, nom: e.target.value }))} />
@@ -429,6 +435,7 @@ export default function Dividendes() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={page} total={dividendes.length} pageSize={PAGE_SIZE} onChange={setPage} />
           </div>
         )}
 
@@ -519,7 +526,7 @@ export default function Dividendes() {
             </div>
             <div className="form-group">
               <label className="form-label">Date de versement *</label>
-              <input required type="date" className="form-input" value={form.date_versement} onChange={(e) => setForm((f) => ({ ...f, date_versement: e.target.value }))} />
+              <DateInput required value={form.date_versement} onChange={(v) => setForm((f) => ({ ...f, date_versement: v }))} />
             </div>
           </div>
 

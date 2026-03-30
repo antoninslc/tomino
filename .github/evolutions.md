@@ -1,6 +1,6 @@
 # Tomino — Évolutions à finaliser avant distribution
 
-Date: 2026-03-17
+Date: 2026-03-30
 
 ## Objectif
 Ce document liste ce qu'il faut consolider/ajouter avant une distribution publique, puis propose une frontière claire entre l'offre Free et Tomino +.
@@ -82,13 +82,13 @@ La logique produit retenue est un compromis: local-first par défaut (fiabilité
 - CRUD complet actifs/mouvements/dividendes/alertes.
 - Dashboard, répartition, benchmark simple.
 - Fiscalité de base: vue annuelle et données déclaratives.
-- IA limitée: quota hebdomadaire bas + profondeur "Éco" uniquement.
+- IA limitée: quota hebdomadaire 0,05 €/semaine + tokens output réduits.
 - Export CSV basique (données brutes).
 - Sauvegarde manuelle locale.
 - Utilisation locale offline-first sur un appareil principal.
 
 ## Tomino + (3$/mois)
-- IA avancée: tiers Standard + Approfondi, plus de contexte et historique plus long.
+- IA avancée: quota 0,25 €/semaine, tokens output augmentés, historique chat étendu (12 messages).
 - Rapports IA Tomino +: rapport mensuel prêt à lire + checklist d'actions.
 - Simulateur "et si ?" multi-scénarios avec comparaison avant/après.
 - Export PDF Tomino + (mise en page soignée, partage imprimable).

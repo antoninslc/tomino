@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import DateInput from '../components/DateInput'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 
@@ -41,6 +42,7 @@ export default function Livrets() {
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [focusedIdx, setFocusedIdx] = useState(-1)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const nameInputRef = useRef(null)
 
   const formOpen = searchParams.get('new') === '1'
@@ -189,10 +191,10 @@ export default function Livrets() {
   }
 
   async function removeLivret(id) {
-    if (!window.confirm('Supprimer ce livret ?')) return
     setError('')
     try {
       await api.del(`/livrets/${id}`)
+      setConfirmDeleteId(null)
       await load()
     } catch (err) {
       setError(err?.message || 'Suppression impossible')
@@ -268,7 +270,14 @@ export default function Livrets() {
                     <td>
                       <div className="actions-cell">
                         <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEditForm(l)}>Éditer</button>
-                        <button type="button" className="btn btn-danger btn-sm" onClick={() => removeLivret(l.id)}>✕</button>
+                        {confirmDeleteId === l.id ? (
+                          <>
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => removeLivret(l.id)}>Confirmer</button>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmDeleteId(null)}>Annuler</button>
+                          </>
+                        ) : (
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmDeleteId(l.id)}>✕</button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -371,12 +380,7 @@ export default function Livrets() {
 
             <div className="form-group">
               <label className="form-label">Date de mise à jour</label>
-              <input
-                type="date"
-                className="form-input"
-                value={form.date_maj}
-                onChange={(e) => setForm((f) => ({ ...f, date_maj: e.target.value }))}
-              />
+              <DateInput value={form.date_maj} onChange={(v) => setForm((f) => ({ ...f, date_maj: v }))} />
             </div>
           </div>
 

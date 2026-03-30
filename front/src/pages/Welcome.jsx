@@ -18,7 +18,7 @@ export default function Welcome() {
       await api.post('/demo/inject')
       window.location.href = '/'
     } catch (err) {
-      setDemoError(err?.message || 'Erreur lors du chargement de la démo.')
+      setDemoError(err?.message || 'Impossible de démarrer la visite libre. Vérifiez que l\'application est bien lancée.')
       setLoadingDemo(false)
     }
   }
@@ -34,10 +34,10 @@ export default function Welcome() {
       formData.append('confirm_restore', '1')
       const res = await fetch('/api/import/backup', { method: 'POST', body: formData })
       const payload = await res.json().catch(() => ({}))
-      if (!res.ok || payload?.ok === false) throw new Error(payload?.erreur || 'Import impossible')
+      if (!res.ok || payload?.ok === false) throw new Error(payload?.erreur || 'Fichier de sauvegarde invalide ou incompatible.')
       window.location.href = '/'
     } catch (err) {
-      setImportError(err?.message || 'Fichier invalide.')
+      setImportError(err?.message || 'Impossible de restaurer la sauvegarde. Vérifiez que le fichier est un .tomino-backup valide.')
       setImporting(false)
       if (fileRef.current) fileRef.current.value = ''
     }

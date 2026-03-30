@@ -3,11 +3,14 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import PlusBadge from '../components/PlusBadge'
+import DateInput from '../components/DateInput'
 import SyncPage from './settings/SyncPage'
 import PricingPage from './settings/PricingPage'
 import FiscalPage from './settings/FiscalPage'
 import ExportPage from './settings/ExportPage'
 import ComptesEtrangersPage from './settings/ComptesEtrangersPage'
+import ConfidentialitePage from './settings/ConfidentialitePage'
 
 const BLUR_KEY = 'tomino_blur'
 const SYNC_AUTH_TOKEN_KEY = 'tomino_sync_auth_token'
@@ -292,6 +295,7 @@ export default function Settings() {
   const isExportBackupPage = path === '/settings/export/backup'
   const isSyncPage = path === '/settings/sync'
   const isPricingPage = path === '/settings/pricing'
+  const isConfidentialitePage = path === '/settings/confidentialite'
   const isAnyExportSubPage = isExportPdfPage || isExportCsvMouvementsPage || isExportCsvDividendesPage || isExportCsvFiscalPage || isExportBackupPage
   const [form, setForm] = useState(DEFAULT_PROFILE)
   const [comptes, setComptes] = useState([])
@@ -386,6 +390,8 @@ export default function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [autoSaveStatus, setAutoSaveStatus] = useState('')
+  const autoSaveTimerRef = useRef(null)
   const [toastMsg, setToastMsg] = useState('')
   const [confirmCompte, setConfirmCompte] = useState(null)
   const [blurAmounts, setBlurAmounts] = useState(() => localStorage.getItem(BLUR_KEY) === '1')
@@ -459,7 +465,31 @@ export default function Settings() {
   }
 
   function setField(name, value) {
-    setForm((current) => ({ ...current, [name]: value }))
+    const next = { ...form, [name]: value }
+    setForm(next)
+    saveProfileAuto(next)
+  }
+
+  async function saveProfileAuto(data) {
+    setAutoSaveStatus('saving')
+    try {
+      await api.post('/profil', {
+        horizon: data.horizon,
+        risque: data.risque,
+        objectif: data.objectif,
+        strategie: data.strategie,
+        style_ia: data.style_ia,
+        ton_ia: data.ton_ia,
+        secteurs_exclus: data.secteurs_exclus,
+        benchmark: data.benchmark,
+        tier: data.tier,
+      })
+      setAutoSaveStatus('saved')
+      clearTimeout(autoSaveTimerRef.current)
+      autoSaveTimerRef.current = setTimeout(() => setAutoSaveStatus(''), 2000)
+    } catch {
+      setAutoSaveStatus('error')
+    }
   }
 
   function toggleExclusion(value) {
@@ -472,29 +502,6 @@ export default function Settings() {
           : [...current.secteurs_exclus, value],
       }
     })
-  }
-
-  async function saveProfile() {
-    setSaving(true)
-    setError('')
-    try {
-      await api.post('/profil', {
-        horizon: form.horizon,
-        risque: form.risque,
-        objectif: form.objectif,
-        strategie: form.strategie,
-        style_ia: form.style_ia,
-        ton_ia: form.ton_ia,
-        secteurs_exclus: form.secteurs_exclus,
-        benchmark: form.benchmark,
-        tier: form.tier,
-      })
-      showToast('Profil enregistré avec succès.')
-    } catch (e) {
-      setError(e?.message || "Impossible d'enregistrer le profil.")
-    } finally {
-      setSaving(false)
-    }
   }
 
   function showToast(message) {
@@ -1409,41 +1416,20 @@ export default function Settings() {
             }}
           >
             <div className="settings-group-label" style={{ background: 'rgba(0,0,0,.15)', color: 'rgba(216,255,238,.9)' }}>Recommandé</div>
-            <button
-              type="button"
+            <div
               className="settings-row"
-              onClick={openSyncEntry}
-              style={{ width: '100%', border: 0, textAlign: 'left', background: 'transparent' }}
+              style={{ width: '100%', opacity: 0.55, cursor: 'not-allowed' }}
             >
               <div className="settings-row-info">
-                <div className="settings-row-title" style={{ color: '#eafff5' }}>Synchronisation cloud</div>
-                <div className="settings-row-sub" style={{ color: 'rgba(228,255,244,.82)' }}>
-                  {syncAuthToken
-                    ? 'Gérez votre compte cloud, et accédez à vos votre patrimoine depuis tous vos appareils et via le site web.'
-                    : 'Le compte est requis uniquement pour la sync cloud. Gratuit reste 100% local.'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="settings-row-title" style={{ color: '#eafff5' }}>Synchronisation cloud</span>
+                  <span style={{ fontSize: '.65rem', fontFamily: 'var(--mono)', background: 'rgba(255,255,255,0.1)', color: 'rgba(228,255,244,.7)', borderRadius: 6, padding: '2px 7px', letterSpacing: '.04em' }}>Prochainement</span>
+                </div>
+                <div className="settings-row-sub" style={{ color: 'rgba(228,255,244,.6)' }}>
+                  La synchronisation multi-appareils est en cours de développement.
                 </div>
               </div>
-              <span style={{ color: 'rgba(233,255,246,.92)', fontSize: '1.1rem' }}>{syncEntryLoading ? '…' : '›'}</span>
-            </button>
-          </div>
-
-          <div className="settings-group fade-up">
-            <div className="settings-group-label">Confidentialité</div>
-            <div className="settings-row" onClick={toggleBlur}>
-              <div className="settings-row-info">
-                <div className="settings-row-title">Flouter les montants</div>
-                <div className="settings-row-sub">Masque les sommes affichées dans l'application. Survolez pour révéler.</div>
-              </div>
-              <button
-                className={`toggle-switch${blurAmounts ? ' on' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  toggleBlur()
-                }}
-                type="button"
-                aria-pressed={blurAmounts}
-                aria-label="Activer ou désactiver le flou sur les montants"
-              />
+              <span style={{ color: 'rgba(233,255,246,.4)', fontSize: '1.1rem' }}>›</span>
             </div>
           </div>
 
@@ -1489,6 +1475,17 @@ export default function Settings() {
               <div className="settings-row-info">
                 <div className="settings-row-title">Export & import de données</div>
                 <div className="settings-row-sub">PDF patrimonial, exports CSV et sauvegarde complète (.tomino-backup) avec restauration.</div>
+              </div>
+              <span style={{ color: 'var(--text-3)', fontSize: '1.1rem' }}>›</span>
+            </button>
+          </div>
+
+          <div className="settings-group fade-up">
+            <div className="settings-group-label">Confidentialité</div>
+            <button type="button" className="settings-row" onClick={() => navigate('/settings/confidentialite')} style={{ width: '100%', border: 0, textAlign: 'left', background: 'transparent' }}>
+              <div className="settings-row-info">
+                <div className="settings-row-title">Confidentialité & sécurité</div>
+                <div className="settings-row-sub">Ce que Tomino stocke, ce qu'il envoie et comment vos données sont protégées.</div>
               </div>
               <span style={{ color: 'var(--text-3)', fontSize: '1.1rem' }}>›</span>
             </button>
@@ -1629,22 +1626,43 @@ export default function Settings() {
                       <div style={{ fontSize: '.88rem', fontWeight: 600 }}>{item.label}</div>
                       <div style={{ fontSize: '.76rem', fontFamily: 'var(--mono)', color: locked ? 'var(--text-3)' : 'var(--text-2)', marginTop: 2 }}>{item.sub}</div>
                     </div>
-                    {locked && (
-                      <span style={{ fontSize: '.72rem', fontFamily: 'var(--mono)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
-                        🔒 Tomino +
-                      </span>
-                    )}
+                    {locked && <PlusBadge />}
                   </button>
                 )
               })}
             </div>
             {isFree && (
               <p style={{ marginTop: 8, fontSize: '.76rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
-                Le niveau Standard et Approfondi seront disponibles avec un abonnement Tomino +.
+                Le niveau Approfondi sera disponible avec un abonnement Tomino +.
               </p>
             )}
           </div>
+
+          <div className="form-group" style={{ marginTop: 18 }}>
+            <label className="form-label">Modèle utilisé</label>
+            <p style={{ fontSize: '.78rem', color: 'var(--text-3)', marginBottom: 8, fontFamily: 'var(--mono)' }}>
+              Modèle d'IA utilisé pour les analyses et le chat. Configurable dans une future version.
+            </p>
+            <div style={{
+              padding: '10px 13px',
+              borderRadius: 10,
+              border: '1px solid var(--line)',
+              background: 'rgba(255,255,255,.02)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}>
+              <span style={{ fontSize: '.88rem', fontFamily: 'var(--mono)', color: 'var(--text-2)' }}>
+                grok-4-1-fast-reasoning
+              </span>
+              <span style={{ fontSize: '.72rem', fontFamily: 'var(--mono)', color: 'var(--text-3)' }}>
+                xAI
+              </span>
+            </div>
+          </div>
         </section>
+
       </>
     )
   }
@@ -1744,11 +1762,11 @@ export default function Settings() {
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Date d’ouverture</label>
-              <input type="date" className="form-input" value={compteForm.date_ouverture} onChange={(e) => setCompteForm((c) => ({ ...c, date_ouverture: e.target.value }))} />
+              <DateInput value={compteForm.date_ouverture} onChange={(v) => setCompteForm((c) => ({ ...c, date_ouverture: v }))} />
             </div>
             <div className="form-group">
               <label className="form-label">Date de clôture (si applicable)</label>
-              <input type="date" className="form-input" value={compteForm.date_cloture} onChange={(e) => setCompteForm((c) => ({ ...c, date_cloture: e.target.value }))} />
+              <DateInput value={compteForm.date_cloture} onChange={(v) => setCompteForm((c) => ({ ...c, date_cloture: v }))} />
             </div>
           </div>
 
@@ -3019,8 +3037,8 @@ export default function Settings() {
           </div>
 
           <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-ghost" onClick={() => navigate('/settings/sync')}>
-              Espace sync cloud
+            <button type="button" className="btn btn-ghost" disabled style={{ opacity: 0.4, cursor: 'not-allowed' }}>
+              Sync cloud — prochainement
             </button>
             {!isTominoPlus && (
               <button
@@ -3058,7 +3076,7 @@ export default function Settings() {
 
       {!loading && (
         <div style={{ display: 'grid', gap: 16 }}>
-          {!isProfilePage && !isIaPage && !isComptesPage && !isFiscalPage && !isExportPage && !isAnyExportSubPage && !isSyncPage && !isPricingPage && renderRoot()}
+          {!isProfilePage && !isIaPage && !isComptesPage && !isFiscalPage && !isExportPage && !isAnyExportSubPage && !isSyncPage && !isPricingPage && !isConfidentialitePage && renderRoot()}
           {isProfilePage && renderProfilePage()}
           {isIaPage && renderIaPage()}
           {isComptesPage && <ComptesEtrangersPage render={renderComptesPage} />}
@@ -3094,6 +3112,9 @@ export default function Settings() {
               }}
             />
           )}
+          {isConfidentialitePage && (
+            <ConfidentialitePage ctx={{ BackHeader, navigate, blurAmounts, toggleBlur }} />
+          )}
           {isPricingPage && (
             <PricingPage
               ctx={{
@@ -3113,16 +3134,30 @@ export default function Settings() {
             />
           )}
 
-          {(isProfilePage || isIaPage) && (
-            <div className="fade-up" style={{ maxWidth: 980, display: 'flex', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-primary" disabled={saving} onClick={saveProfile}>
-                {saving ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
+          {(isProfilePage || isIaPage) && autoSaveStatus && (
+            <div style={{ maxWidth: 980, display: 'flex', justifyContent: 'flex-end', minHeight: 28, alignItems: 'center' }}>
+              {autoSaveStatus === 'saving' && (
+                <span style={{ fontSize: '.74rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>Enregistrement...</span>
+              )}
+              {autoSaveStatus === 'saved' && (
+                <span style={{ fontSize: '.74rem', color: 'var(--green)', fontFamily: 'var(--mono)' }}>Enregistré</span>
+              )}
+              {autoSaveStatus === 'error' && (
+                <span style={{ fontSize: '.74rem', color: 'var(--red)', fontFamily: 'var(--mono)' }}>Erreur — impossible d'enregistrer</span>
+              )}
             </div>
           )}
 
           <div style={{ textAlign: 'center', marginTop: 40, paddingBottom: 24, fontSize: '.75rem', color: 'var(--text-3)', letterSpacing: '.3px' }}>
-            Tomino v{appVersion || '...'}
+            <div style={{ marginBottom: 10 }}>Tomino v{appVersion || '...'}</div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 18 }}>
+              <button type="button" onClick={() => navigate('/politique-confidentialite')} style={{ background: 'none', border: 0, color: 'var(--text-3)', fontSize: '.73rem', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(255,255,255,0.15)' }}>
+                Politique de confidentialité
+              </button>
+              <button type="button" onClick={() => navigate('/mentions-legales')} style={{ background: 'none', border: 0, color: 'var(--text-3)', fontSize: '.73rem', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(255,255,255,0.15)' }}>
+                Mentions légales
+              </button>
+            </div>
           </div>
         </div>
       )}

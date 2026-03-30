@@ -24,6 +24,7 @@ export default function SyncPage({ ctx }) {
 
   const [isRenamingDevice, setIsRenamingDevice] = React.useState(false)
   const [newDeviceName, setNewDeviceName] = React.useState('')
+  const [renameError, setRenameError] = React.useState('')
 
   const isTominoPlus = Boolean(syncSubscription?.tomino_plus || syncAuthUser?.tomino_plus || String(syncAuthUser?.tier || '').toLowerCase() === 'tomino_plus')
   const currentDevice = (syncDevices || []).find((d) => d.device_id === syncCurrentDeviceId) || null
@@ -38,18 +39,19 @@ export default function SyncPage({ ctx }) {
   const renameDevice = async () => {
     const trimmedName = String(newDeviceName || '').trim()
     if (!trimmedName || !currentDevice) return
+    setRenameError('')
     try {
       const response = await fetch('/api/devices/rename', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${syncAuthToken}` },
         body: JSON.stringify({ device_id: syncCurrentDeviceId || syncDeviceId, device_label: trimmedName }),
       })
-      if (!response.ok) throw new Error('Impossible de renommer l\'appareil')
+      if (!response.ok) throw new Error('Impossible de renommer cet appareil.')
       setIsRenamingDevice(false)
       setNewDeviceName('')
       await ctx.loadSyncState?.()
     } catch (e) {
-      alert(e?.message || 'Erreur lors du renommage')
+      setRenameError(e?.message || 'Impossible de renommer cet appareil.')
     }
   }
 
@@ -208,6 +210,11 @@ export default function SyncPage({ ctx }) {
                       </button>
                     </div>
                   </div>
+                  {renameError && (
+                    <div style={{ marginTop: 10, fontSize: '.83rem', color: 'var(--red)', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+                      {renameError}
+                    </div>
+                  )}
                 </div>
               )}
 

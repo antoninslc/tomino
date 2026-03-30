@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
 import { api } from '../api'
+import IaConsentModal, { hasIaConsent } from '../components/IaConsentModal'
 
 const STORAGE_KEY = 'tomino_chat_messages'
 const CONVERSATIONS_KEY = 'tomino_chat_conversations'
@@ -125,6 +127,8 @@ function sanitizeMessagesForApi(source) {
 }
 
 export default function Chat() {
+  const navigate = useNavigate()
+  const [consent, setConsent] = useState(hasIaConsent())
   const SIDEBAR_WIDTH = 268
   const [messages, setMessages] = useState(loadMessages)
   const [conversations, setConversations] = useState(loadConversations)
@@ -138,6 +142,7 @@ export default function Chat() {
   const abortRef = useRef(null)
   const pendingDeltaRef = useRef('')
   const rafRef = useRef(null)
+  const convIdRef = useRef(crypto.randomUUID())
 
   useEffect(() => {
     return () => abortRef.current?.abort()
@@ -238,7 +243,8 @@ export default function Chat() {
         headers: { 'Content-Type': 'application/json' },
         signal: abortRef.current.signal,
         body: JSON.stringify({
-          messages: sanitizeMessagesForApi(next.slice(0, -1))
+          messages: sanitizeMessagesForApi(next.slice(0, -1)),
+          conv_id: convIdRef.current,
         })
       })
 
@@ -409,6 +415,7 @@ export default function Chat() {
 
   function startNewChat() {
     _archiveCurrentConversation(messages)
+    convIdRef.current = crypto.randomUUID()
     setMessages(WELCOME)
     setError('')
     setInput('')
@@ -416,6 +423,13 @@ export default function Chat() {
 
   return (
     <section>
+      {!consent && (
+        <IaConsentModal
+          quota={quota}
+          onAccept={() => setConsent(true)}
+          onRefuse={() => navigate('/')}
+        />
+      )}
       <div
         className="fade-up"
         style={{

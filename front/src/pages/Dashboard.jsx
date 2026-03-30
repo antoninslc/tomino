@@ -267,7 +267,7 @@ export default function Dashboard() {
         setActifsRecents([...all].sort((a, b) => Number(b.id || 0) - Number(a.id || 0)).slice(0, 8))
       } catch (e) {
         if (!mounted) return
-        setError(e?.message || 'Erreur de chargement dashboard')
+        setError(e?.message || 'Impossible de charger le tableau de bord.')
       } finally {
         if (mounted) setLoading(false)
       }
@@ -331,7 +331,7 @@ export default function Dashboard() {
 
   return (
     <section>
-      {loading && <p className="text-text2">Chargement des donnees...</p>}
+      {loading && <p className="text-text2">Chargement des données...</p>}
 
       {error && (
         <div className="rounded-xl border px-4 py-3 text-sm" style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
@@ -339,13 +339,15 @@ export default function Dashboard() {
         </div>
       )}
 
-      {!loading && !error && resume && (
+      {!loading && !error && resume && (() => {
+        const isEmpty = !actifsRecents.length && Number(resume?.total || 0) === 0
+        return (
         <>
           <section className="hero-strip fade-up">
             <div className="hero-copy">
               <div className="hero-kicker">Dashboard patrimonial</div>
-              <h1 className="hero-title">Une vue nette de ton capital.</h1>
-              <p className="hero-subtitle">Allocation, performance latente et evolution recente dans une interface sobre, dense et orientee decision.</p>
+              <h1 className="hero-title">Une vue nette de votre capital.</h1>
+              <p className="hero-subtitle">Allocation, performance latente et évolution récente dans une interface sobre, dense et orientée décision.</p>
             </div>
             <div className="card" style={{ minWidth: 280, maxWidth: 320 }}>
               <div className="card-label">Net worth</div>
@@ -361,6 +363,52 @@ export default function Dashboard() {
             </div>
           </section>
 
+          {/* ── État vide ────────────────────────────────────────────── */}
+          {isEmpty && (
+            <div className="card fade-up" style={{ marginBottom: 24 }}>
+              <div style={{ maxWidth: 480, marginBottom: 24 }}>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)', marginBottom: 8 }}>Premiers pas</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>
+                  Votre patrimoine est vide pour l'instant.
+                </div>
+                <p style={{ color: 'var(--text-2)', fontSize: '.9rem', lineHeight: 1.6 }}>
+                  Commencez par ajouter vos actifs pour voir votre allocation, vos performances et l'évolution de votre patrimoine en temps réel.
+                </p>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10 }}>
+                {[
+                  { label: 'Actions & ETF',   sub: 'PEA · CTO',         href: '/portefeuille/PEA' },
+                  { label: 'Or',              sub: 'Lingots · pièces',   href: '/portefeuille/OR'  },
+                  { label: 'Livrets',         sub: 'Livret A · LEP…',    href: '/livrets' },
+                  { label: 'Assurance vie',   sub: 'Contrats en UC/fonds euro', href: '/assurance-vie' },
+                ].map(({ label, sub, href }) => (
+                  <a
+                    key={label}
+                    href={href}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      padding: '14px 16px',
+                      border: '1px solid var(--line)',
+                      borderRadius: 12,
+                      background: 'rgba(255,255,255,0.02)',
+                      textDecoration: 'none',
+                      transition: 'border-color .15s, background .15s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(24,195,126,.4)'; e.currentTarget.style.background = 'rgba(24,195,126,.06)' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '.9rem', color: 'var(--text)' }}>{label}</div>
+                      <div style={{ fontSize: '.78rem', color: 'var(--text-3)', marginTop: 2, fontFamily: 'var(--mono)' }}>{sub}</div>
+                    </div>
+                    <span style={{ color: 'var(--green)', fontSize: '1rem', marginLeft: 8 }}>→</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isEmpty ? null : <>
           <div className="g4 fade-up" style={{ marginBottom: 12 }}>
             <div className="stat">
               <div className="stat-label">Actions</div>
@@ -398,7 +446,7 @@ export default function Dashboard() {
           <div className="card fade-up-3" style={{ marginBottom: 24 }}>
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18, gap: 16 }}>
               <div>
-                <div className="card-label" style={{ marginBottom: 8 }}>Evolution</div>
+                <div className="card-label" style={{ marginBottom: 8 }}>Évolution</div>
                 <div style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '-0.03em' }}>Historique du patrimoine</div>
                 <div style={{ marginTop: 6, color: 'var(--text-2)', fontSize: '.9rem' }}>Snapshots enregistrés chaque jour à 17h30 (heure de Paris) et lors des rafraîchissements.</div>
               </div>
@@ -416,7 +464,7 @@ export default function Dashboard() {
           </div>
 
           <div className="card fade-up-3">
-            <div className="card-label">Positions recentes</div>
+            <div className="card-label">Positions récentes</div>
             <div className="tbl-wrap">
               <table>
                 <thead>
@@ -449,15 +497,17 @@ export default function Dashboard() {
                   ))}
                   {!actifsRecents.length && (
                     <tr>
-                      <td colSpan={7} className="td-mono dim">Aucun actif saisi pour le moment.</td>
+                      <td colSpan={7} className="td-mono dim">Aucune position saisie pour le moment.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
           </div>
+          </>}
         </>
-      )}
+        )
+      })()}
     </section>
   )
 }

@@ -67,8 +67,8 @@ const ICONS = {
   ),
   alertes: (
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M1.5 5.5H5L10 2V13L5 9.5H1.5V5.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" fillOpacity=".12" fill="currentColor"/>
-      <path d="M11.5 5.5a2.5 2.5 0 010 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+      <path d="M2 5.5H5L13 2.5V12.5L5 9.5H2V5.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" fill="currentColor" fillOpacity=".12"/>
+      <path d="M3.5 9.5V13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   ),
   notifications: (
@@ -79,15 +79,27 @@ const ICONS = {
   ),
   analyse: (
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M2 11L5.5 7L8 9.5L11 5.5L13.5 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-      <circle cx="12" cy="3.5" r="1.8" stroke="currentColor" strokeWidth="1.3"/>
-      <path d="M13.2 4.7L14.5 6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1.3"/>
+      <path d="M9.5 9.5L13 13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
     </svg>
   ),
   chat: (
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M1.5 2.5C1.5 1.95 1.95 1.5 2.5 1.5H12.5C13.05 1.5 13.5 1.95 13.5 2.5V9.5C13.5 10.05 13.05 10.5 12.5 10.5H5L2 13.5V10.5H2.5C1.95 10.5 1.5 10.05 1.5 9.5V2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
       <path d="M4.5 5.5H10.5M4.5 7.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  ),
+  rapport: (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="1.5" width="11" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M5 5h5M5 7.5h5M5 10h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  ),
+  stockAnalyse: (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 11L5 7.5L7.5 9.5L10.5 5.5L13 7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx="13" cy="4" r="2" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M12 5L14 7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
     </svg>
   ),
   chevronDown: (
@@ -97,83 +109,59 @@ const ICONS = {
   )
 }
 
-const PORTFOLIO_ITEMS = [
-  { to: '/portefeuille/PEA', label: 'PEA', icon: 'pea' },
-  { to: '/portefeuille/CTO', label: 'CTO', icon: 'cto' },
-  { to: '/portefeuille/OR', label: 'Or', icon: 'or' },
-  { to: '/assurance-vie', label: 'Assurance vie', icon: 'assuranceVie' }
+const ACTIFS_ITEMS = [
+  { to: '/portefeuille/PEA', label: 'PEA' },
+  { to: '/portefeuille/CTO', label: 'CTO' },
+  { to: '/portefeuille/OR', label: 'Or' },
+  { to: '/assurance-vie', label: 'Assurance vie' },
+  { to: '/livrets', label: 'Livrets' },
+  { to: '/obligations', label: 'Obligations (à venir)', disabled: true },
 ]
 
-const links = [
-  { section: 'Overview', items: [{ to: '/', label: 'Dashboard', icon: 'dashboard' }] },
-  {
-    section: 'Holdings',
-    items: [
-      { to: '/livrets', label: 'Livrets', icon: 'livrets' },
-      { to: '/obligations', label: 'Obligations (à venir)', icon: 'obligations', disabled: true }
-    ]
-  },
-  {
-    section: 'Revenus & Suivi',
-    items: [
-      { to: '/dividendes', label: 'Dividendes', icon: 'dividendes' },
-      { to: '/alertes', label: 'Alertes', icon: 'alertes' }
-    ]
-  },
-  {
-    section: 'Tomino Intelligence',
-    items: [
-      { to: '/analyse', label: 'Analyse', icon: 'analyse' },
-      { to: '/chat', label: 'Chat', icon: 'chat' }
-    ]
-  }
+const SUIVI_ITEMS = [
+  { to: '/dividendes', label: 'Dividendes', icon: 'dividendes' },
+  { to: '/alertes', label: 'Alertes', icon: 'alertes' },
+  { to: '/rapport', label: 'Rapport mensuel', icon: 'rapport' },
 ]
 
-function renderCollapsiblePortfolio({ section, items }, isOpen, onToggle) {
+const INTELLIGENCE_ITEMS = [
+  { to: '/chat', label: 'Chat', icon: 'chat' },
+  { to: '/analyse', label: 'Diagnostic', icon: 'analyse' },
+  { to: '/analyse-action', label: "Analyse d'action", icon: 'stockAnalyse' },
+]
+
+function CollapsibleGroup({ label, items, isOpen, onToggle }) {
   return (
-    <div key={section} className="nav-group">
+    <div className="nav-group">
       <button
         type="button"
         onClick={onToggle}
-        className="nav-collapsible-header"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          width: '100%',
-          background: 'none',
-          border: 'none',
-          color: 'inherit',
-          padding: 0,
-          cursor: 'pointer'
+          display: 'flex', alignItems: 'center', width: '100%',
+          background: 'none', border: 'none', color: 'inherit', padding: 0, cursor: 'pointer',
         }}
       >
-        <span className="nav-group-label" style={{ flex: 1, textAlign: 'left' }}>{section}</span>
-        <span
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 18,
-            height: 18,
-            opacity: 0.6,
-            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 200ms ease'
-          }}
-        >
+        <span className="nav-group-label" style={{ flex: 1, textAlign: 'left', paddingBottom: 0 }}>{label}</span>
+        <span style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 18, height: 18, opacity: 0.5, marginBottom: 4,
+          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+          transition: 'transform 200ms ease',
+        }}>
           {ICONS.chevronDown}
         </span>
       </button>
-
       {isOpen && (
-        <div style={{ display: 'grid', gap: 4, marginTop: 6 }}>
-          {items.map(({ to, label, icon }) => (
+        <div style={{ display: 'grid', gap: 2, marginTop: 4 }}>
+          {items.map(({ to, label: lbl, disabled }) => (
             <NavLink
               key={to}
-              to={to}
-              className={({ isActive }) => `nav-link portfolio-link${isActive ? ' active' : ''}`}
+              to={disabled ? '#' : to}
+              className={({ isActive }) => `nav-link portfolio-link${isActive && !disabled ? ' active' : ''}${disabled ? ' disabled' : ''}`}
+              onClick={(e) => disabled && e.preventDefault()}
+              style={{ opacity: disabled ? 0.4 : 1, cursor: disabled ? 'default' : 'pointer' }}
             >
-              <span className="nav-icon">{ICONS[icon]}</span>
-              {label}
+              {lbl}
             </NavLink>
           ))}
         </div>
@@ -182,20 +170,20 @@ function renderCollapsiblePortfolio({ section, items }, isOpen, onToggle) {
   )
 }
 
-function renderGroup({ section, items }, forceIntel = false) {
+function StaticGroup({ label, items }) {
   return (
-    <div key={section} className={`nav-group${forceIntel || section === 'Tomino Intelligence' ? ' nav-group-intel' : ''}`}>
-      <div className="nav-group-label">{section}</div>
-      {items.map(({ to, label, icon, disabled }) => (
+    <div className="nav-group">
+      <div className="nav-group-label">{label}</div>
+      {items.map(({ to, label: lbl, icon, disabled }) => (
         <NavLink
           key={to}
           to={disabled ? '#' : to}
           className={({ isActive }) => `nav-link${isActive && !disabled ? ' active' : ''}${disabled ? ' disabled' : ''}`}
           onClick={(e) => disabled && e.preventDefault()}
-          style={{ opacity: disabled ? 0.5 : 1, cursor: disabled ? 'default' : 'pointer' }}
+          style={{ opacity: disabled ? 0.4 : 1, cursor: disabled ? 'default' : 'pointer' }}
         >
-          <span className="nav-icon">{ICONS[icon]}</span>
-          {label}
+          {icon && <span className="nav-icon">{ICONS[icon]}</span>}
+          {lbl}
         </NavLink>
       ))}
     </div>
@@ -203,12 +191,9 @@ function renderGroup({ section, items }, forceIntel = false) {
 }
 
 export default function Sidebar() {
-  const [isPortfolioOpen, setIsPortfolioOpen] = useState(true)
+  const [isActifsOpen, setIsActifsOpen] = useState(true)
   const [showTominoPlusBadge, setShowTominoPlusBadge] = useState(false)
   const [triggeredAlertCount, setTriggeredAlertCount] = useState(0)
-  const topGroup = links[0]
-  const middleGroups = links.slice(1, -1)
-  const bottomGroup = links[links.length - 1]
 
   useEffect(() => {
     let mounted = true
@@ -332,20 +317,40 @@ export default function Sidebar() {
       </div>
       <div className="sidebar-layout">
         <div className="sidebar-top">
-          {renderGroup(topGroup)}
+          <NavLink
+            to="/"
+            className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+            style={{ marginBottom: 4 }}
+          >
+            <span className="nav-icon">{ICONS.dashboard}</span>
+            Dashboard
+          </NavLink>
         </div>
 
         <nav className="sidebar-scroll">
-          {renderCollapsiblePortfolio(
-            { section: 'Portefeuilles', items: PORTFOLIO_ITEMS },
-            isPortfolioOpen,
-            () => setIsPortfolioOpen(!isPortfolioOpen)
-          )}
-          {middleGroups.map((group) => renderGroup(group))}
+          <CollapsibleGroup
+            label="Mes actifs"
+            items={ACTIFS_ITEMS}
+            isOpen={isActifsOpen}
+            onToggle={() => setIsActifsOpen(v => !v)}
+          />
+          <StaticGroup label="Suivi" items={SUIVI_ITEMS} />
         </nav>
 
         <div className="sidebar-bottom">
-          {renderGroup(bottomGroup, true)}
+          <div className="nav-group nav-group-intel">
+            <div className="nav-group-label">Tomino Intelligence</div>
+            {INTELLIGENCE_ITEMS.map(({ to, label, icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+              >
+                <span className="nav-icon">{ICONS[icon]}</span>
+                {label}
+              </NavLink>
+            ))}
+          </div>
         </div>
       </div>
     </aside>

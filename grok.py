@@ -18,7 +18,7 @@ import database as db
 load_dotenv()
 
 _API_URL = "https://api.x.ai/v1/chat/completions"
-_MODEL   = "grok-3"
+_MODEL   = "grok-4-1-fast-reasoning"
 _MAX_CONTINUATIONS = 3
 
 # Tokens max par tier (system + user + réponse)
@@ -220,7 +220,8 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
         tier         : "free" | "tomino_plus"
 
     Returns:
-        Texte de l'analyse, ou message d'erreur préfixé par "[ERREUR]".
+        Tuple (texte, usage_dict) — texte de l'analyse (ou "[ERREUR]…") et
+        {"prompt_tokens": int, "completion_tokens": int} depuis l'API.
     """
     api_key = os.getenv("XAI_API_KEY", "").strip()
     if not api_key:
@@ -241,6 +242,7 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
         {"role": "user", "content": contexte},
     ]
 
+    usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
     try:
         morceaux = []
         for _ in range(_MAX_CONTINUATIONS + 1):
@@ -263,6 +265,11 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
             r.raise_for_status()
 
             data = r.json()
+            usage = data.get("usage") or {}
+            usage_total["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
+            usage_total["completion_tokens"] += int(usage.get("completion_tokens") or 0)
+            usage_total["cached_tokens"] += int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+
             choice = data["choices"][0]
             chunk = ((choice.get("message") or {}).get("content") or "").strip()
             finish_reason = choice.get("finish_reason", "")
@@ -291,7 +298,7 @@ def analyser(type_analyse: str, resume: dict, actifs: list, tier: str = "free") 
 
     if not reponse.startswith("[ERREUR]"):
         db.save_analyse(type_analyse, contexte, reponse)
-    return reponse
+    return reponse, usage_total
 
 
 def _construire_prompt_chat(resume: dict, profil: dict, actifs: list | None = None, tier: str = "free") -> str:
@@ -404,6 +411,7 @@ def chat(historique_messages: list, resume: dict, actifs: list | None = None, ti
     if len(messages) == 1:
         return "[ERREUR] Aucun message utilisateur à traiter."
 
+    usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
     try:
         morceaux = []
         for _ in range(_MAX_CONTINUATIONS + 1):
@@ -426,6 +434,11 @@ def chat(historique_messages: list, resume: dict, actifs: list | None = None, ti
             r.raise_for_status()
 
             data = r.json()
+            usage = data.get("usage") or {}
+            usage_total["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
+            usage_total["completion_tokens"] += int(usage.get("completion_tokens") or 0)
+            usage_total["cached_tokens"] += int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+
             choice = data["choices"][0]
             chunk = (choice["message"].get("content") or "").strip()
             finish_reason = choice.get("finish_reason", "")
@@ -447,20 +460,20 @@ def chat(historique_messages: list, resume: dict, actifs: list | None = None, ti
 
         reponse = "\n\n".join(morceaux).strip()
         if not reponse:
-            return "[ERREUR] Réponse vide de l'API xAI."
-        return reponse
+            return "[ERREUR] Réponse vide de l'API xAI.", usage_total
+        return reponse, usage_total
     except requests.exceptions.HTTPError as exc:
         r_ref = exc.response
         code = r_ref.status_code if r_ref is not None else '?'
         body = r_ref.text[:300] if r_ref is not None else ''
-        return f"[ERREUR] Réponse HTTP {code} de l'API xAI : {body}"
+        return f"[ERREUR] Réponse HTTP {code} de l'API xAI : {body}", {}
     except requests.exceptions.RequestException as e:
-        return f"[ERREUR] Impossible de joindre l'API xAI : {e}"
+        return f"[ERREUR] Impossible de joindre l'API xAI : {e}", {}
     except (KeyError, IndexError, ValueError) as e:
-        return f"[ERREUR] Réponse inattendue de l'API : {e}"
+        return f"[ERREUR] Réponse inattendue de l'API : {e}", {}
 
 
-def chat_stream(historique_messages: list, resume: dict, actifs: list | None = None, tier: str = "free"):
+def chat_stream(historique_messages: list, resume: dict, actifs: list | None = None, tier: str = "free", conv_id: str | None = None):
     """
     Chat éphémère en streaming : génère des morceaux de texte au fil de l'eau.
 
@@ -505,6 +518,7 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
         yield "[ERREUR] Aucun message utilisateur à traiter."
         return
 
+    usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
     try:
         for continuation_idx in range(_MAX_CONTINUATIONS + 1):
             payload = {
@@ -513,17 +527,21 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
                 "temperature": 0.65,
                 "max_tokens": max_tokens,
                 "stream": True,
+                "stream_options": {"include_usage": True},
             }
+            req_headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            if conv_id:
+                req_headers["x-grok-conv-id"] = conv_id
 
             chunk_parts = []
             finish_reason = ""
 
             with requests.post(
                 _API_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=req_headers,
                 json=payload,
                 timeout=60,
                 stream=True,
@@ -545,6 +563,14 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
                     try:
                         evt = json.loads(data_str)
                     except json.JSONDecodeError:
+                        continue
+
+                    # Chunk d'usage final (choices vide, usage présent)
+                    if evt.get("usage") and not evt.get("choices"):
+                        u = evt["usage"]
+                        usage_total["prompt_tokens"] += int(u.get("prompt_tokens") or 0)
+                        usage_total["completion_tokens"] += int(u.get("completion_tokens") or 0)
+                        usage_total["cached_tokens"] += int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
                         continue
 
                     choices = evt.get("choices") or []
@@ -589,3 +615,159 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
         yield f"[ERREUR] Impossible de joindre l'API xAI : {e}"
     except Exception as e:
         yield f"[ERREUR] Flux inattendu de l'API : {e}"
+
+    # Sentinel final avec les vrais compteurs de tokens
+    yield {"__usage__": usage_total}
+
+
+def stock_chat_stream(historique_messages: list, stock_data: dict, tier: str = "free", conv_id: str | None = None):
+    """
+    Chat en streaming contextualisé sur une action.
+    stock_data : dict retourné par prices.get_stock_fundamentals()
+    """
+    api_key = os.getenv("XAI_API_KEY", "").strip()
+    if not api_key:
+        yield "[ERREUR] Clé API XAI_API_KEY manquante."
+        return
+
+    tier = _tier_valide(tier)
+    max_tokens = _CHAT_MAX_TOKENS_PAR_TIER[tier]
+    nb_messages = _CHAT_HISTORIQUE_PAR_TIER[tier]
+    historique_messages = historique_messages[-nb_messages:]
+
+    profil = db.get_profil()
+    ton = profil.get("ton_ia", "informel")
+    style = profil.get("style_ia", "detaille")
+
+    nom = stock_data.get("nom") or stock_data.get("ticker", "cette action")
+    ticker = stock_data.get("ticker", "")
+
+    def pct(v):
+        return f"{v*100:.1f}%" if v is not None else "N/D"
+    def val(v, suffix=""):
+        return f"{v}{suffix}" if v is not None else "N/D"
+    def eur_m(v):
+        if v is None: return "N/D"
+        if v >= 1e12: return f"{v/1e12:.1f} T"
+        if v >= 1e9:  return f"{v/1e9:.1f} Md"
+        if v >= 1e6:  return f"{v/1e6:.0f} M"
+        return str(v)
+
+    context = f"""Tu es un assistant d'analyse boursière intégré à Tomino, application de gestion de patrimoine.
+Tu analyses l'action suivante et tu réponds aux questions de l'utilisateur à son sujet.
+Ton : {"décontracté mais précis" if ton == "informel" else "professionnel et rigoureux"}.
+Style : {"détaillé avec explications" if style == "detaille" else "synthétique"}.
+
+=== ACTION ANALYSÉE : {nom} ({ticker}) ===
+Secteur : {stock_data.get("secteur") or "N/D"} | Industrie : {stock_data.get("industrie") or "N/D"} | Pays : {stock_data.get("pays") or "N/D"}
+Cours actuel : {val(stock_data.get("cours"))} {stock_data.get("devise","")} | Variation jour : {pct(stock_data.get("variation_jour"))}
+52 semaines — Haut : {val(stock_data.get("cours_52w_haut"))} | Bas : {val(stock_data.get("cours_52w_bas"))}
+Capitalisation : {eur_m(stock_data.get("capitalisation"))} | Bêta : {val(stock_data.get("beta"))}
+
+VALORISATION
+P/E trailing : {val(stock_data.get("pe_trailing"))} | P/E forward : {val(stock_data.get("pe_forward"))}
+P/B : {val(stock_data.get("pb"))} | P/S : {val(stock_data.get("ps"))} | EV/EBITDA : {val(stock_data.get("ev_ebitda"))} | PEG : {val(stock_data.get("peg"))}
+
+SANTÉ FINANCIÈRE
+Marge nette : {pct(stock_data.get("marge_nette"))} | Marge opérationnelle : {pct(stock_data.get("marge_operationnelle"))}
+ROE : {pct(stock_data.get("roe"))} | ROA : {pct(stock_data.get("roa"))}
+Dette/Capitaux : {val(stock_data.get("dette_capitaux"))} | Current ratio : {val(stock_data.get("current_ratio"))}
+
+CROISSANCE
+CA (YoY) : {pct(stock_data.get("croissance_ca"))} | Bénéfices (YoY) : {pct(stock_data.get("croissance_benefices"))}
+
+DIVIDENDE
+Rendement : {pct(stock_data.get("rendement_div"))} | Taux distribution : {pct(stock_data.get("taux_distribution"))}
+
+CONSENSUS ANALYSTES ({stock_data.get("nb_analystes", 0)} analystes)
+Recommandation : {stock_data.get("recommandation") or "N/D"}
+Objectif moyen : {val(stock_data.get("objectif_moyen"))} | Haut : {val(stock_data.get("objectif_haut"))} | Bas : {val(stock_data.get("objectif_bas"))}
+
+PROFIL INVESTISSEUR
+Horizon : {profil.get("horizon","N/D")} | Risque : {profil.get("risque","N/D")} | Objectif : {profil.get("objectif","N/D")}
+
+Réponds aux questions sur cette action. Si l'utilisateur demande une opinion d'investissement, rappelle toujours que tu n'es pas conseiller financier et que c'est sa décision finale.
+"""
+
+    messages = [{"role": "system", "content": context}]
+    for m in historique_messages:
+        if not isinstance(m, dict):
+            continue
+        role = (m.get("role") or "").strip()
+        content = (m.get("content") or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        messages.append({"role": role, "content": content})
+
+    if len(messages) == 1:
+        yield "[ERREUR] Aucun message à traiter."
+        return
+
+    req_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    if conv_id:
+        req_headers["x-grok-conv-id"] = conv_id
+    usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
+
+    try:
+        for continuation_idx in range(_MAX_CONTINUATIONS + 1):
+            payload = {
+                "model": _MODEL,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
+            r = requests.post(_API_URL, json=payload, headers=req_headers, stream=True, timeout=60)
+            r.raise_for_status()
+            chunk = ""
+            finish = None
+            raw = ""
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                text = line.decode("utf-8") if isinstance(line, bytes) else line
+                if not text.startswith("data:"):
+                    continue
+                raw = text[5:].strip()
+                if raw == "[DONE]":
+                    break
+                try:
+                    evt = json.loads(raw)
+                except Exception:
+                    continue
+                # Chunk d'usage final (choices vide, usage présent)
+                if evt.get("usage") and not evt.get("choices"):
+                    u = evt["usage"]
+                    usage_total["prompt_tokens"] += int(u.get("prompt_tokens") or 0)
+                    usage_total["completion_tokens"] += int(u.get("completion_tokens") or 0)
+                    usage_total["cached_tokens"] += int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+                    continue
+                choices = evt.get("choices") or []
+                if not choices:
+                    continue
+                choice = choices[0]
+                delta = choice.get("delta", {}).get("content", "")
+                if delta:
+                    chunk += delta
+                    yield delta
+                fr = choice.get("finish_reason")
+                if fr:
+                    finish = fr
+            if finish != "length":
+                break
+            if continuation_idx >= _MAX_CONTINUATIONS:
+                yield "\n\n[Réponse tronquée]"
+                break
+            messages.append({"role": "assistant", "content": chunk})
+            messages.append({"role": "user", "content": "Continue."})
+    except requests.exceptions.HTTPError as exc:
+        r_ref = exc.response
+        code = r_ref.status_code if r_ref is not None else "?"
+        yield f"[ERREUR] HTTP {code} depuis l'API xAI."
+    except requests.exceptions.RequestException as e:
+        yield f"[ERREUR] Impossible de joindre l'API xAI : {e}"
+    except Exception as e:
+        yield f"[ERREUR] {e}"
+
+    # Sentinel final avec les vrais compteurs de tokens
+    yield {"__usage__": usage_total}

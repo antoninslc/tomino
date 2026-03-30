@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { api } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import DateInput from '../components/DateInput'
 
 const OR_PRESETS = {
   etc: [
@@ -12,8 +13,8 @@ const OR_PRESETS = {
   ],
   physique: [
     { label: 'Or physique - Lingot 1kg', nom: 'Or physique - Lingot 1kg', ticker: '', type: 'or' },
-    { label: 'Or physique - Napoleon 20F', nom: 'Or physique - Napoleon 20F', ticker: '', type: 'or' },
-    { label: 'Or physique - Piece 1 once', nom: 'Or physique - Piece 1 once', ticker: '', type: 'or' }
+    { label: 'Or physique - Napoléon 20F', nom: 'Or physique - Napoléon 20F', ticker: '', type: 'or' },
+    { label: 'Or physique - Pièce 1 once', nom: 'Or physique - Pièce 1 once', ticker: '', type: 'or' }
   ],
   miniere: [
     { label: 'Barrick Gold', nom: 'Barrick Gold', ticker: 'GOLD', type: 'action' },
@@ -217,7 +218,7 @@ export default function ActifForm() {
     try {
       const data = await api.get(`/position_existante?ticker=${encodeURIComponent(t)}&env=${encodeURIComponent(form.enveloppe)}`)
       if (data?.existant) {
-        setMergeHint(`Position existante detectee - ${data.quantite} titres a PRU ${data.pru} EUR. Cet achat sera fusionne automatiquement.`)
+        setMergeHint(`Position existante détectée — ${data.quantite} titre(s) à PRU ${data.pru} EUR. Cet achat sera fusionné automatiquement.`)
       } else {
         setMergeHint('')
       }
@@ -407,7 +408,7 @@ export default function ActifForm() {
           <h1 className="hero-title" style={{ maxWidth: 'none' }}>
             {isEdit ? 'Modifier la ligne' : 'Nouvelle ligne'}
           </h1>
-          <p className="hero-subtitle">Saisie rapide, propre et orientee portefeuille. Tous les champs utiles sont regroupes sur un seul ecran.</p>
+          <p className="hero-subtitle">Saisie rapide, propre et orientée portefeuille. Tous les champs utiles sont regroupés sur un seul écran.</p>
         </div>
 
         {error && (
@@ -557,7 +558,7 @@ export default function ActifForm() {
               )}
               <div className="form-group">
                 <label className="form-label">Date d'achat</label>
-                <input type="date" className="form-input" value={form.date_achat} onChange={(e) => setForm((f) => ({ ...f, date_achat: e.target.value }))} />
+                <DateInput value={form.date_achat} onChange={(v) => setForm((f) => ({ ...f, date_achat: v }))} />
               </div>
             </div>
 
@@ -625,7 +626,7 @@ export default function ActifForm() {
                         <tr key={op.id} id={`op-row-${op.id}`}>
                           <td>
                             {isEditing ? (
-                              <input type="date" className="form-input" value={opDraft.date_operation} onChange={(e) => setOpDraft((d) => ({ ...d, date_operation: e.target.value }))} />
+                              <DateInput value={opDraft.date_operation} onChange={(v) => setOpDraft((d) => ({ ...d, date_operation: v }))} />
                             ) : (
                               <span className="td-mono dim" style={{ fontSize: '.72rem' }}>{op.date_operation || '-'}</span>
                             )}

@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { api } from './api'
 import UpdateBanner from './components/UpdateBanner'
 import DemoBanner from './components/DemoBanner'
+import ScrollToTop from './components/ScrollToTop'
 import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
 import Portefeuille from './pages/Portefeuille'
@@ -16,8 +17,12 @@ import Chat from './pages/Chat'
 import ActifForm from './pages/ActifForm'
 import Settings from './pages/Settings'
 import Notifications from './pages/Notifications'
+import Rapport from './pages/Rapport'
+import StockAnalyse from './pages/StockAnalyse'
 import Onboarding from './pages/Onboarding'
 import Welcome from './pages/Welcome'
+import MentionsLegales from './pages/MentionsLegales'
+import PolitiqueConfidentialite from './pages/PolitiqueConfidentialite'
 
 const DEFAULT_PROFIL = {
   horizon: 'long',
@@ -153,12 +158,18 @@ function Topbar() {
   } else if (path === '/alertes') {
     page = 'Portefeuilles'
     title = 'Alertes'
+  } else if (path === '/rapport') {
+    page = 'Revenus & Suivi'
+    title = 'Rapport mensuel'
   } else if (path === '/notifications') {
     page = 'Tomino'
     title = 'Notifications'
+  } else if (path === '/analyse-action') {
+    page = 'Tomino Intelligence'
+    title = 'Analyse d\'action'
   } else if (path === '/analyse') {
     page = 'Tomino Intelligence'
-    title = 'Analyse'
+    title = 'Diagnostic'
   } else if (path === '/chat') {
     page = 'Tomino Intelligence'
     title = 'Chat'
@@ -201,6 +212,9 @@ function Topbar() {
   } else if (path === '/settings/pricing') {
     page = 'Paramètres'
     title = 'Tarifs'
+  } else if (path === '/settings/confidentialite') {
+    page = 'Paramètres'
+    title = 'Confidentialité & sécurité'
   } else if (formAdd) {
     page = `Portefeuilles / ${envForm}`
     title = 'Nouvelle position'
@@ -282,24 +296,31 @@ export default function App() {
 
   if (isWelcomePage) {
     return (
+      <>
+      <ScrollToTop />
       <Routes>
         <Route path="/welcome" element={<Welcome />} />
         <Route path="*" element={<Navigate to="/welcome" replace />} />
       </Routes>
+      </>
     )
   }
 
   if (isOnboardingPage) {
     return (
+      <>
+      <ScrollToTop />
       <Routes>
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="*" element={<Navigate to="/onboarding" replace />} />
       </Routes>
+      </>
     )
   }
 
   return (
     <div className="app-shell">
+      <ScrollToTop />
       <DemoBanner isDemo={isDemo} />
       <UpdateBanner />
       <Sidebar />
@@ -318,10 +339,14 @@ export default function App() {
             <Route path="/assurance-vie" element={<AssuranceVie />} />
             <Route path="/dividendes" element={<Dividendes />} />
             <Route path="/alertes" element={<Alertes />} />
+            <Route path="/rapport" element={<Rapport />} />
+            <Route path="/analyse-action" element={<StockAnalyse />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/analyse" element={<Analyse />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/settings/*" element={<Settings />} />
+            <Route path="/mentions-legales" element={<MentionsLegales />} />
+            <Route path="/politique-confidentialite" element={<PolitiqueConfidentialite />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>

@@ -22,8 +22,8 @@ Tomino est un outil de **supervision de patrimoine financier personnel**.
 |---|---|---|
 | Serveur | Python + Flask | 3.x |
 | Base de données | SQLite (natif `sqlite3`) | — |
-| Cours financiers | Yahoo Finance HTTP direct | — |
-| IA | Grok API (xAI) — format OpenAI | grok-3 |
+| Cours financiers | yfinance 1.2.0 (via `prices.py` uniquement) | 1.2.0 |
+| IA | Grok API (xAI) — format OpenAI | grok-4-1-fast-reasoning |
 | Emails transactionnels | Resend API | — |
 | Calculs financiers | Module `calculs.py` maison | — |
 | CORS | flask-cors | — |
@@ -86,6 +86,7 @@ tomino_track/
             ├── Repartition.jsx    ← répartition géographique/sectorielle
             ├── AnalyseIA.jsx      ← 3 modes d'analyse Grok
             ├── Chat.jsx           ← chat streaming avec Grok
+            ├── StockAnalyse.jsx   ← fiche action (fondamentaux + graphiques + chat streaming contextualisé)
             ├── Onboarding.jsx     ← questionnaire 5 étapes (accessible depuis Welcome)
             └── Settings.jsx       ← paramètres profil investisseur + assistant fiscal 3916
 ```
@@ -162,7 +163,7 @@ ton_ia TEXT DEFAULT 'informel'     -- "formel" | "informel"  ← forme de la ré
 secteurs_exclus TEXT DEFAULT '[]'  -- JSON array
 pays_exclus TEXT DEFAULT '[]'      -- JSON array
 benchmark TEXT DEFAULT 'CW8.PA'   -- ticker Yahoo du benchmark
-tier TEXT DEFAULT 'free'           -- "free" | "tier1" | "tier2" ← niveau de prompt Grok
+tier TEXT DEFAULT 'free'           -- "free" | "tomino_plus" ← niveau de prompt Grok
 is_demo INTEGER DEFAULT 0          -- 1 = mode découverte actif (données fictives injectées)
 ```
 
@@ -199,7 +200,7 @@ created_at TEXT DEFAULT (datetime('now'))
 ```sql
 id INTEGER PRIMARY KEY AUTOINCREMENT
 endpoint TEXT NOT NULL           -- "chat" | "analyse"
-tier TEXT NOT NULL               -- "free" | "tier1" | "tier2"
+tier TEXT NOT NULL               -- "free" | "tomino_plus"
 input_tokens INTEGER DEFAULT 0
 output_tokens INTEGER DEFAULT 0
 total_tokens INTEGER DEFAULT 0
@@ -228,7 +229,7 @@ email TEXT NOT NULL UNIQUE
 password_hash TEXT NOT NULL
 auth_provider TEXT NOT NULL DEFAULT 'local' -- "local" | "supabase" | "oidc"
 provider_user_id TEXT                        -- id utilisateur côté provider (NULL en local)
-tier TEXT NOT NULL DEFAULT 'free'   -- "free" | "tier1" | "tier2"
+tier TEXT NOT NULL DEFAULT 'free'   -- "free" | "tomino_plus"
 created_at TEXT DEFAULT (datetime('now'))
 updated_at TEXT DEFAULT (datetime('now'))
 ```
@@ -276,7 +277,7 @@ user_id INTEGER NOT NULL
 provider TEXT NOT NULL                    -- "local" | "stripe"
 provider_customer_id TEXT
 provider_subscription_id TEXT
-tier TEXT NOT NULL DEFAULT 'free'         -- "free" | "tier1" | "tier2"
+tier TEXT NOT NULL DEFAULT 'free'         -- "free" | "tomino_plus"
 status TEXT NOT NULL DEFAULT 'active'     -- ex: active, trialing, canceled, past_due
 current_period_end TEXT
 metadata_json TEXT
@@ -422,6 +423,8 @@ created_at TEXT DEFAULT (datetime('now'))
 | GET | `/api/grok/historique` | 20 dernières analyses |
 | POST | `/api/chat` | Chat simple (non-streaming) |
 | POST | `/api/chat/stream` | Chat streaming SSE |
+| GET | `/api/stock/fundamentals/<ticker>` | Fondamentaux boursiers d'une action (valorisation, santé, dividendes, consensus analystes) |
+| POST | `/api/stock/chat/stream` | Chat streaming SSE contextualisé sur une action (body: `{messages, stock_data, conv_id}`) |
 | POST | `/api/demo/inject` | Injecte les données fictives de démo (actifs PEA, livrets, 30 jours d'historique) et passe `is_demo=1` |
 | POST | `/api/demo/reset` | Purge toutes les données métier et remet `is_demo=0` (retour à l'état vierge) |
 
@@ -431,16 +434,17 @@ created_at TEXT DEFAULT (datetime('now'))
 
 ### Backend Python
 - **Pas d'ORM** — SQL brut uniquement via `sqlite3`
-- **Pas de yfinance** — appels HTTP directs à Yahoo Finance via `prices.py` (session HTTP thread-local)
+- **yfinance uniquement via `prices.py`** — jamais d'import yfinance hors de ce module ; toute logique de cours passe par `prices.py`
 - **Enrichissement actifs** : toujours passer par `prices.enrichir_actifs()` puis `calculs.tri_position()` via `_enrichir_avec_tri()` dans app.py
 - **Helpers app.py** : utiliser `_clean_env()`, `_to_float()`, `_actif_payload()` etc.
 - **Profil injecté dans Grok** : `grok.analyser()`, `grok.chat()` et `grok.chat_stream()` appellent `db.get_profil()` automatiquement
-- **Tier Grok** : lu depuis `db.get_profil()["tier"]` côté serveur uniquement — jamais depuis le client. Valeurs : `"free"` | `"tier1"` | `"tier2"`. `save_profil()` valide et refuse tout tier inconnu.
+- **Tier Grok** : lu depuis `db.get_profil()["tier"]` côté serveur uniquement — jamais depuis le client. Valeurs : `"free"` | `"tomino_plus"`. `save_profil()` valide et refuse tout tier inconnu.
 - **Édition des mouvements** : `PUT /api/mouvements/<id>` supporte l'édition des **achats et ventes** avec recalcul de la position et de la PV réalisée pour les ventes.
-- **Quota IA hebdomadaire** : budget global chat + analyse = **0,25 € / semaine** (fenêtre lundi 00:00 → lundi suivant, timezone Paris).
-- **Blocage quota** : les routes `/api/grok/analyser`, `/api/chat` et `/api/chat/stream` refusent les appels en **HTTP 429** quand le budget est atteint, avec message de reprise (`next_reset`).
-- **Tracking IA** : chaque appel IA réussi enregistre une ligne dans `ia_usage` (tokens estimés entrée/sortie + coût estimé).
-- **Tarif estimé** : coût basé sur `XAI_COST_EUR_PER_1K_TOKENS` (défaut `0.002`) ; ajustable via `.env`.
+- **Quota IA hebdomadaire par tier** : Free = **0,05 € / semaine** — Tomino+ = **0,25 € / semaine** (fenêtre lundi 00:00 → lundi suivant, timezone Paris).
+- **Blocage quota** : les routes `/api/grok/analyser`, `/api/chat`, `/api/chat/stream` et `/api/stock/chat/stream` refusent les appels en **HTTP 429** quand le budget du tier est atteint, avec message de reprise (`next_reset`).
+- **Tracking IA** : chaque appel IA réussi enregistre une ligne dans `ia_usage` avec les **vrais compteurs de tokens** retournés par l'API xAI (`usage.prompt_tokens`, `usage.completion_tokens`, `usage.prompt_tokens_details.cached_tokens`).
+- **Tarif réel** (grok-4-1-fast-reasoning) : `XAI_COST_INPUT_EUR_PER_1K` (défaut `0.0002`) pour les tokens non-cachés, `XAI_COST_CACHED_INPUT_EUR_PER_1K` (défaut `0.00005`) pour les tokens cachés, `XAI_COST_OUTPUT_EUR_PER_1K` (défaut `0.0005`) pour l'output. Ajustables via `.env`.
+- **Prompt caching** : `chat_stream()` et `stock_chat_stream()` envoient le header `x-grok-conv-id` (UUID stable par session frontend) pour activer le cache xAI. Ne jamais modifier/réordonner les messages précédents pour conserver les hits de cache.
 - Snapshot journalier automatique à 17h30 via `_snapshot_scheduler()`
 - Rafraîchissement des cours toutes les 2 min pendant heures de marché via `_cours_scheduler()`
 - Purge cache prix sélective: suppression des entrées > 60 secondes via `prices.vider_cache_ancien(max_age=60)`
@@ -457,7 +461,7 @@ created_at TEXT DEFAULT (datetime('now'))
 - Free local-first : aucun compte requis pour les routes locales ; auth nécessaire uniquement pour les routes sync cloud.
 - Entitlements Tomino + : les routes sync/appareils sont refusées en `HTTP 403` si `users.tier="free"`.
 - Facturation : provider configurable via `TOMINO_BILLING_PROVIDER` (`local` par défaut, `stripe` si activé).
-- Stripe (optionnel) : config via `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_TIER1`, `STRIPE_PRICE_TIER2`, `STRIPE_PORTAL_RETURN_URL` (+ URLs success/cancel).
+- Stripe (optionnel) : config via `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_TIER2` (alias `STRIPE_PRICE_PLUS`), `STRIPE_PORTAL_RETURN_URL` (+ URLs success/cancel).
 - Emails transactionnels (optionnel) : config via `RESEND_API_KEY` et `RESEND_FROM_EMAIL` ; envoi via `emails.py`.
 - Webhooks Stripe gérés : `checkout.session.completed`, `invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`.
 - `checkout.session.completed` : met à jour le tier + abonnement et envoie un email de bienvenue (`emails.send_welcome`).
@@ -500,11 +504,10 @@ created_at TEXT DEFAULT (datetime('now'))
 Grok ne se présente jamais comme un conseiller financier. Il apporte un **regard extérieur**.
 Chaque réponse se termine par un rappel court : regard extérieur, pas un conseil financier.
 
-| Tier | Rôle produit | Tokens max analyse | Tokens max chat | Historique chat |
+| Tier | Budget/semaine | Tokens max analyse | Tokens max chat | Historique chat |
 |---|---|---|---|---|
-| `free` | Ultra-compact — consommation minimale | 512 | 400 | 4 messages |
-| `tier1` | Compact — bon équilibre profondeur / crédits | 800 | 700 | 8 messages |
-| `tier2` | Complet — analyse riche, limites explicitées | 1200 | 1000 | 12 messages |
+| `free` | 0,05 € — Ultra-compact | 512 | 400 | 4 messages |
+| `tomino_plus` | 0,25 € — Complet | 1200 | 1000 | 12 messages |
 
 Continuité anti-troncature :
 - `analyser()`, `chat()` et `chat_stream()` gèrent les réponses coupées (`finish_reason="length"`) avec continuation automatique contrôlée (`_MAX_CONTINUATIONS`).
@@ -552,37 +555,31 @@ mais la vraie contrainte est appliquée **côté serveur** dans `save_profil()` 
 - **Routing onboarding** : `App.jsx` redirige vers `/welcome` si le profil est absent ou vierge (et que la session n'est pas déjà sur `/onboarding` ou `/settings/sync`). Quitter le mode démo retourne à `/welcome`.
 - **Sortie du mode démo par onboarding** : `POST /api/profil` détecte `is_demo=1` et appelle `reset_all_data()` avant de sauvegarder le vrai profil, pour garantir que les données fictives sont purgées.
 
-### Accueil et mode découverte
-- **Page Welcome** (`Welcome.jsx`) : présentée systématiquement aux nouveaux utilisateurs (profil absent ou vierge). Trois choix : « Créer mon espace » → `/onboarding`, « Visite libre » → injecte données démo via `POST /api/demo/inject` puis recharge, « J'ai un compte » → `/settings/sync`.
-- **Mode démo** : activé via `is_demo=1` sur le profil. Injecte un PEA fictif (LVMH, Air Liquide, CW8), deux livrets, et 30 jours d'historique.
-- **DemoBanner** (`DemoBanner.jsx`) : bandeau fixe en bas de l'écran, visible uniquement si `is_demo=1`. Affiche un avertissement et un bouton « Quitter la démo et commencer » qui appelle `POST /api/demo/reset` puis redirige vers `/welcome`.
-- **Routing onboarding** : `App.jsx` redirige vers `/welcome` si le profil est absent ou vierge (et que la session n'est pas déjà sur `/onboarding` ou `/settings/sync`). Quitter le mode démo retourne à `/welcome`.
-- **Sortie du mode démo par onboarding** : `POST /api/profil` détecte `is_demo=1` et appelle `reset_all_data()` avant de sauvegarder le vrai profil, pour garantir que les données fictives sont purgées.
-
 ---
 
 ## Design system
 
 ### Couleurs (CSS variables dans `index.css`)
 ```css
---bg:     #0a0a0a   /* fond principal */
---bg1:    #111111   /* sidebar, cards */
---bg2:    #161616   /* inputs, bg secondaire */
---bg3:    #1c1c1c   /* hover, bg tertiaire */
---line:   #242424   /* bordures */
---gold:   #c9a84c   /* accent unique — or pâle */
---green:  #4a9e6a   /* positif */
---red:    #9e4a4a   /* négatif */
---text:   #e8e3dc   /* texte principal */
---text2:  #8a8480   /* texte secondaire */
---text3:  #4a4744   /* texte tertiaire / labels */
+--bg:         #0b0d10                    /* fond principal */
+--bg-elev:    #111419                    /* sidebar, cards */
+--bg-soft:    #151a21                    /* inputs, bg secondaire */
+--bg-soft-2:  #1b2129                    /* bg tertiaire */
+--line:       rgba(255,255,255,0.07)     /* bordures */
+--line-strong:rgba(255,255,255,0.13)     /* bordures marquées */
+--text:       #f5f7fb                    /* texte principal */
+--text-2:     #adb7c7                    /* texte secondaire */
+--text-3:     #718095                    /* texte tertiaire / labels */
+--green:      #18c37e                    /* positif */
+--red:        #ff6b6b                    /* négatif */
+/* gold #c9a84c — utilisé inline (badge Tomino+), pas de variable CSS dédiée */
 ```
 
 ### Typographie
 ```css
---serif: 'Instrument Serif', Georgia, serif    /* grands chiffres */
---mono:  'IBM Plex Mono', monospace            /* données, labels */
---sans:  'IBM Plex Sans', system-ui, sans-serif /* UI générale */
+--sans: 'Manrope', system-ui, sans-serif   /* UI générale */
+--mono: 'IBM Plex Mono', monospace         /* données, chiffres, labels */
+/* Pas de serif — pas d'Instrument Serif dans ce projet */
 ```
 
 ### Classes utilitaires custom

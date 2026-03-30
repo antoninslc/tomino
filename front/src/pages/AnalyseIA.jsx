@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { api } from '../api'
+import IaConsentModal, { hasIaConsent } from '../components/IaConsentModal'
 
 const LABELS = {
   performance: 'Performance',
@@ -104,6 +106,8 @@ function parseApiError(err, fallback) {
 }
 
 export default function Analyse() {
+  const navigate = useNavigate()
+  const [consent, setConsent] = useState(hasIaConsent())
   const [typeAnalyse, setTypeAnalyse] = useState('performance')
   const [historyMode, setHistoryMode] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -280,6 +284,13 @@ export default function Analyse() {
 
   return (
     <section>
+      {!consent && (
+        <IaConsentModal
+          quota={quota}
+          onAccept={() => setConsent(true)}
+          onRefuse={() => navigate('/')}
+        />
+      )}
       <section className="hero-strip fade-up">
         <div className="hero-copy">
           <div className="hero-kicker">Analyse de patrimoine</div>

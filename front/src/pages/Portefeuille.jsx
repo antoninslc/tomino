@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, NavLink, useParams, useSearchParams } from 'react-router-dom'
+import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import Pagination from '../components/Pagination'
+import DateInput from '../components/DateInput'
 
 function eur(n) {
   const fmt = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(Number(n || 0))
@@ -89,6 +91,7 @@ function normalizeText(value) {
 export default function Portefeuille() {
   const { env: envParam } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const env = useMemo(() => asEnv(envParam), [envParam])
 
   const [payload, setPayload] = useState(null)
@@ -116,6 +119,7 @@ export default function Portefeuille() {
     date_operation: new Date().toISOString().slice(0, 10),
   })
   const [opSaving, setOpSaving] = useState(false)
+  const [movPage, setMovPage] = useState(1)
   const nameInputRef = useRef(null)
 
   useEffect(() => {
@@ -179,6 +183,7 @@ export default function Portefeuille() {
     setShowSuggestions(false)
     setFocusedIdx(-1)
     setMergeHint('')
+    setMovPage(1)
   }, [env, searchParams])
 
   useEffect(() => {
@@ -189,6 +194,10 @@ export default function Portefeuille() {
 
   const actifs = (payload?.actifs || []).filter((a) => Number(a?.quantite || 0) > 0)
   const mouvements = payload?.mouvements || []
+  const isEmpty = !loading && !error && actifs.length === 0
+
+  const MOV_PAGE_SIZE = 20
+  const mouvementsPage = mouvements.slice((movPage - 1) * MOV_PAGE_SIZE, movPage * MOV_PAGE_SIZE)
   const stats = payload?.stats || {}
   const statsCoeur = payload?.stats_coeur || {}
   const statsSatellite = payload?.stats_satellite || {}
@@ -211,18 +220,20 @@ export default function Portefeuille() {
 
   useEffect(() => {
     if (env !== 'PEA') return
-    if (!oldestDate || !/^\d{4}-\d{2}-\d{2}$/.test(oldestDate)) return
 
     async function loadBenchmark() {
       try {
         setBenchError('')
-        const qs = new URLSearchParams({ ticker: benchTicker, depuis: oldestDate }).toString()
+        const depuis = (oldestDate && /^\d{4}-\d{2}-\d{2}$/.test(oldestDate))
+          ? oldestDate
+          : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+        const qs = new URLSearchParams({ ticker: benchTicker, depuis }).toString()
         const data = await api.get(`/benchmark?${qs}`)
         if (data?.ok === false) throw new Error('Benchmark indisponible')
         setBenchData(data)
       } catch {
         setBenchData(null)
-        setBenchError('Benchmark indisponible pour cette periode.')
+        setBenchError('Benchmark indisponible pour cette période.')
       }
     }
 
@@ -272,7 +283,7 @@ export default function Portefeuille() {
     try {
       const data = await api.get(`/position_existante?ticker=${encodeURIComponent(t)}&env=${encodeURIComponent(env)}`)
       if (data?.existant) {
-        setMergeHint(`Position existante detectee - ${data.quantite} titres a PRU ${data.pru} EUR. Cet achat sera fusionne automatiquement.`)
+        setMergeHint(`Position existante détectée — ${data.quantite} titre(s) à PRU ${data.pru} EUR. Cet achat sera fusionné automatiquement.`)
       } else {
         setMergeHint('')
       }
@@ -427,13 +438,13 @@ export default function Portefeuille() {
         <div className="hero-copy">
           <div className="hero-kicker">{env}</div>
           <h1 className="hero-title">Portefeuille {env}.</h1>
-          <p className="hero-subtitle">Suivi des lignes, valorisation temps reel et separation claire entre exposition coeur et satellite.</p>
+          <p className="hero-subtitle">Suivi des lignes, valorisation temps réel et séparation claire entre exposition cœur et satellite.</p>
         </div>
 
         <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
           {env === 'PEA' && (
             <div style={{ minWidth: 220, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: 0 }}>
-              <div className="card-label" style={{ color: 'var(--text-3)' }}>Repartition</div>
+              <div className="card-label" style={{ color: 'var(--text-3)' }}>Répartition</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 10 }}>
                 <div className="h-[88px] w-[88px] rounded-full" style={{ background: `conic-gradient(rgba(245,247,251,0.22) 0 ${donutPct}%, rgba(24,195,126,0.78) ${donutPct}% 100%)` }} />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -466,7 +477,7 @@ export default function Portefeuille() {
         ))}
       </div>
 
-      <div className={`g${env === 'PEA' ? '4' : '3'} fade-up`} style={{ marginBottom: 20 }}>
+      {!isEmpty && <div className={`g${env === 'PEA' ? '4' : '3'} fade-up`} style={{ marginBottom: 20 }}>
         <div className="stat">
           <div className="stat-label">Valeur actuelle</div>
           <div className={`stat-value ${env === 'OR' ? 'gold' : 'dim'}`}>{eur(stats.valeur_actuelle)}</div>
@@ -502,9 +513,9 @@ export default function Portefeuille() {
             </div>
           </div>
         )}
-      </div>
+      </div>}
 
-      {env === 'PEA' && (
+      {env === 'PEA' && !isEmpty && (
         <div className="card fade-up-2" style={{ marginBottom: 20 }}>
           <div className="card-label">Performance vs Benchmark</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -528,12 +539,16 @@ export default function Portefeuille() {
             </div>
           </div>
           <div style={{ fontSize: '.92rem', color: benchError ? '#f5a524' : 'var(--text-2)' }}>
-            {benchError || (benchData ? (Number(stats.pv_pct || 0) - Number(benchData.perf_pct || 0) >= 0 ? `Vous battez l'indice de ${(Number(stats.pv_pct || 0) - Number(benchData.perf_pct || 0)).toFixed(2)}%` : `L'indice vous devance de ${Math.abs(Number(stats.pv_pct || 0) - Number(benchData.perf_pct || 0)).toFixed(2)}%`) : 'Chargement...')}
+            {benchError || (benchData
+            ? (Number(stats.pv_pct || 0) - Number(benchData.perf_pct || 0) >= 0
+                ? `Vous battez l'indice de ${(Number(stats.pv_pct || 0) - Number(benchData.perf_pct || 0)).toFixed(2)} %`
+                : `L'indice vous devance de ${Math.abs(Number(stats.pv_pct || 0) - Number(benchData.perf_pct || 0)).toFixed(2)} %`)
+            : '—')}
           </div>
         </div>
       )}
 
-      {loading && <p className="text-text2">Chargement des donnees...</p>}
+      {loading && <p className="text-text2">Chargement des données...</p>}
       {error && (
         <div className="rounded-xl border px-4 py-3 text-sm" style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
           {error}
@@ -613,12 +628,8 @@ export default function Portefeuille() {
             </div>
           )}
 
-          {!actifs.length && (
-            <div className="empty">
-              <div className="empty-icon">▦</div>
-              <p>Aucune position dans ce portefeuille.</p>
-              {!adding && <button type="button" className="btn btn-primary btn-sm" onClick={openInlineForm}>+ Nouvelle ligne</button>}
-            </div>
+          {!actifs.length && !adding && (
+            <FirstSteps env={env} onAdd={openInlineForm} navigate={navigate} />
           )}
 
           {!!actifs.length && !adding && (
@@ -722,7 +733,7 @@ export default function Portefeuille() {
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">Date d'achat</label>
-                  <input type="date" className="form-input" value={form.date_achat} onChange={(e) => setForm((f) => ({ ...f, date_achat: e.target.value }))} />
+                  <DateInput value={form.date_achat} onChange={(v) => setForm((f) => ({ ...f, date_achat: v }))} />
                 </div>
                 <div className="form-group" />
               </div>
@@ -761,7 +772,7 @@ export default function Portefeuille() {
                     </tr>
                   </thead>
                   <tbody>
-                    {mouvements.map((m) => {
+                    {mouvementsPage.map((m) => {
                       const isEditableRow = env === 'PEA' && Number(m.actif_id || 0) > 0
                       return (
                       <tr
@@ -794,6 +805,7 @@ export default function Portefeuille() {
                   </tbody>
                 </table>
               </div>
+              <Pagination page={movPage} total={mouvements.length} pageSize={MOV_PAGE_SIZE} onChange={setMovPage} />
             </div>
           )}
         </div>
@@ -842,13 +854,7 @@ export default function Portefeuille() {
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Date de l'opération</label>
-                <input
-                  required
-                  type="date"
-                  className="form-input"
-                  value={opModal.date_operation}
-                  onChange={(e) => setOpModal((m) => ({ ...m, date_operation: e.target.value }))}
-                />
+                <DateInput required value={opModal.date_operation} onChange={(v) => setOpModal((m) => ({ ...m, date_operation: v }))} />
               </div>
               <div className="form-group">
                 <label className="form-label">Quantité</label>
@@ -918,5 +924,100 @@ export default function Portefeuille() {
         </div>
       )}
     </section>
+  )
+}
+
+const FIRST_STEPS = {
+  PEA: {
+    subtitle: 'Commencez à construire votre portefeuille actions et ETF. Le PEA offre une exonération d\'impôt sur les plus-values après 5 ans.',
+    actions: [
+      { label: 'Ajouter une action ou un ETF', sub: 'Nouvelle position dans le PEA', icon: '+', action: 'add' },
+      { label: 'Voir la répartition', sub: 'Cœur / satellite et géographie', icon: '◎', action: 'repartition' },
+      { label: 'Suivre les dividendes', sub: 'Centraliser les versements reçus', icon: '↗', action: 'dividendes' },
+    ],
+  },
+  CTO: {
+    subtitle: 'Le CTO permet d\'investir sans plafond et sur tous les marchés. Idéal pour compléter le PEA.',
+    actions: [
+      { label: 'Ajouter une action ou un ETF', sub: 'Nouvelle position dans le CTO', icon: '+', action: 'add' },
+      { label: 'Suivre les dividendes', sub: 'Centraliser les versements reçus', icon: '↗', action: 'dividendes' },
+    ],
+  },
+  OR: {
+    subtitle: 'L\'or est une réserve de valeur historique. Ajoutez vos positions physiques ou ETC pour les suivre aux cours actuels.',
+    actions: [
+      { label: 'Ajouter une position or', sub: 'Lingot, pièce, ETC ou minier', icon: '+', action: 'add' },
+      { label: 'Voir la répartition globale', sub: 'Tous portefeuilles confondus', icon: '◎', action: 'repartition' },
+    ],
+  },
+}
+
+function FirstSteps({ env, onAdd, navigate }) {
+  const config = FIRST_STEPS[env] || FIRST_STEPS.PEA
+
+  function handleAction(action) {
+    if (action === 'add') { onAdd(); return }
+    if (action === 'repartition') { navigate(`/repartition/${env}`); return }
+    if (action === 'dividendes') { navigate('/dividendes'); return }
+  }
+
+  return (
+    <div style={{
+      border: '1px solid var(--line)',
+      borderRadius: 16,
+      padding: '28px 24px',
+      margin: '8px 0',
+    }}>
+      <div style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)', marginBottom: 8 }}>
+        Premiers pas — {env}
+      </div>
+      <p style={{ fontSize: '.88rem', color: 'var(--text-2)', lineHeight: 1.65, marginBottom: 20, maxWidth: 520 }}>
+        {config.subtitle}
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {config.actions.map((item) => (
+          <button
+            key={item.action}
+            type="button"
+            onClick={() => handleAction(item.action)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              padding: '12px 14px',
+              background: 'transparent',
+              border: '1px solid transparent',
+              borderRadius: 12,
+              cursor: 'pointer',
+              textAlign: 'left',
+              color: 'var(--text)',
+              transition: 'background .15s, border-color .15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+              e.currentTarget.style.borderColor = 'var(--line)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.borderColor = 'transparent'
+            }}
+          >
+            <span style={{
+              width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+              background: 'rgba(24,195,126,0.10)',
+              border: '1px solid rgba(24,195,126,0.22)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--mono)', fontSize: '.82rem', color: 'var(--green)',
+            }}>
+              {item.icon}
+            </span>
+            <span>
+              <span style={{ display: 'block', fontSize: '.88rem', fontWeight: 600 }}>{item.label}</span>
+              <span style={{ display: 'block', fontSize: '.75rem', color: 'var(--text-3)', marginTop: 2 }}>{item.sub}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }

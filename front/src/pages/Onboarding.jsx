@@ -262,18 +262,22 @@ export default function Onboarding() {
             </div>
           )}
 
-          <div style={{ marginTop: 'auto', paddingTop: 24, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ marginTop: 'auto', paddingTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             {step === 1 ? (
               <button type="button" className="btn btn-ghost" onClick={() => window.location.href = '/welcome'}>Annuler</button>
             ) : (
               <button type="button" className="btn btn-ghost" onClick={prev}>Précédent</button>
             )}
             {step < TOTAL_STEPS ? (
-              <button type="button" className="btn btn-primary" onClick={next} disabled={!canGoNext()}>Suivant</button>
+              canGoNext() && (
+                <button type="button" className="btn btn-primary" onClick={next}>Suivant</button>
+              )
             ) : (
-              <button type="button" className="btn btn-primary" onClick={finish} disabled={!canGoNext() || saving}>
-                {saving ? 'Enregistrement...' : 'Terminer'}
-              </button>
+              canGoNext() && (
+                <button type="button" className="btn btn-primary" onClick={finish} disabled={saving}>
+                  {saving ? 'Enregistrement...' : 'Terminer'}
+                </button>
+              )
             )}
           </div>
         </div>

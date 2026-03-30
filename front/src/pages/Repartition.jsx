@@ -52,7 +52,27 @@ function DonutCard({ title, data }) {
       <div className="text-xs uppercase tracking-[0.18em] text-text3">{title}</div>
 
       {!entries.length ? (
-        <p className="mt-6 text-sm text-text2">Aucune donnee disponible.</p>
+        <div className="mt-6">
+          <p className="text-sm text-text2" style={{ marginBottom: 12 }}>
+            Aucune donnée disponible pour cette enveloppe.
+          </p>
+          <a
+            href="/portefeuille/PEA"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px',
+              border: '1px solid rgba(24,195,126,.35)',
+              borderRadius: 10,
+              background: 'rgba(24,195,126,.07)',
+              color: 'var(--green)',
+              fontSize: '.85rem', fontWeight: 600,
+              textDecoration: 'none',
+              transition: 'background .15s',
+            }}
+          >
+            Ajouter des actifs →
+          </a>
+        </div>
       ) : (
         <div className="mt-4 grid gap-4 md:grid-cols-[220px_1fr] md:items-center">
           <div className="mx-auto">
@@ -102,7 +122,7 @@ export default function Repartition() {
           pays: rep?.pays || {}
         })
       } catch (e) {
-        setError(e?.message || 'Erreur de chargement repartition')
+        setError(e?.message || 'Erreur de chargement répartition')
         setData({ secteurs: {}, pays: {} })
       } finally {
         setLoading(false)
@@ -115,9 +135,9 @@ export default function Repartition() {
       <section className="hero-strip fade-up">
         <div className="hero-copy">
           <div className="hero-kicker">Allocation</div>
-          <h1 className="hero-title" style={{ maxWidth: '16ch' }}>Repartition sectorielle et geographique.</h1>
+          <h1 className="hero-title" style={{ maxWidth: '16ch' }}>Répartition sectorielle et géographique.</h1>
           <p className="hero-subtitle">
-            Visualisation de l'exposition par secteur et par pays, ponderee par la valeur actuelle des lignes de l'enveloppe selectionnee.
+            Visualisation de l'exposition par secteur et par pays, pondérée par la valeur actuelle des lignes de l'enveloppe sélectionnée.
           </p>
         </div>
       </section>
@@ -138,7 +158,7 @@ export default function Repartition() {
       <div className="card fade-up-2" style={{ marginBottom: 16 }}>
         <div className="card-label">Note</div>
         <div style={{ color: 'var(--text-2)', fontSize: '.9rem', lineHeight: 1.6 }}>
-          Certaines lignes ETF peuvent ne pas exposer de metadonnees sectorielles via Yahoo Finance.
+          Certaines lignes ETF peuvent ne pas exposer de métadonnées sectorielles via Yahoo Finance.
         </div>
       </div>
 
@@ -151,8 +171,8 @@ export default function Repartition() {
 
       {!loading && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <DonutCard title={`Repartition sectorielle · ${env}`} data={data.secteurs} />
-          <DonutCard title={`Repartition geographique · ${env}`} data={data.pays} />
+          <DonutCard title={`Répartition sectorielle · ${env}`} data={data.secteurs} />
+          <DonutCard title={`Répartition géographique · ${env}`} data={data.pays} />
         </div>
       )}
     </section>

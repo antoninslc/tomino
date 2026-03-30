@@ -33,6 +33,45 @@ const TYPE_COLORS = { hausse: 'var(--green)', baisse: 'var(--red)' }
 
 const EMPTY_FORM = { ticker: '', nom: '', type_alerte: 'hausse', seuil: '' }
 
+function ProximityBar({ cours, seuil, type }) {
+  if (cours == null || !seuil) return null
+
+  const ecartPct = ((cours - seuil) / seuil) * 100
+  // Pour hausse : on veut montrer la progression vers le seuil (cours < seuil)
+  // Pour baisse : on veut montrer la progression vers le seuil (cours > seuil)
+  const range = Math.abs(seuil) * 0.2 // fenêtre de ±20% autour du seuil
+  let fill // 0 à 100
+  if (type === 'hausse') {
+    // cours monte vers seuil : 0% = loin en dessous, 100% = atteint
+    fill = Math.min(100, Math.max(0, ((cours - (seuil - range)) / range) * 100))
+  } else {
+    // cours descend vers seuil : 0% = loin au dessus, 100% = atteint
+    fill = Math.min(100, Math.max(0, (((seuil + range) - cours) / range) * 100))
+  }
+
+  const color = type === 'hausse' ? 'var(--green)' : 'var(--red)'
+  const isClose = fill >= 80
+
+  return (
+    <div style={{ marginTop: 5 }}>
+      <div style={{
+        height: 3,
+        borderRadius: 2,
+        background: 'rgba(255,255,255,0.07)',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          height: '100%',
+          width: `${fill}%`,
+          borderRadius: 2,
+          background: isClose ? color : 'rgba(255,255,255,0.25)',
+          transition: 'width .4s ease',
+        }} />
+      </div>
+    </div>
+  )
+}
+
 export default function Alertes() {
   const [alertes, setAlertes] = useState([])
   const [coursCourants, setCoursCourants] = useState({})
@@ -44,6 +83,7 @@ export default function Alertes() {
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [focusedIdx, setFocusedIdx] = useState(-1)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const pollingRef = useRef(null)
 
   async function load() {
@@ -54,7 +94,6 @@ export default function Alertes() {
       const liste = Array.isArray(data?.alertes) ? data.alertes : []
       setAlertes(liste)
 
-      // Récupérer les cours actuels pour les alertes actives
       const actives = liste.filter((a) => a.active === 1)
       const tickers = [...new Set(actives.map((a) => a.ticker).filter(Boolean))]
       const cours = {}
@@ -64,7 +103,7 @@ export default function Alertes() {
             const d = await api.get(`/cours/${ticker}`)
             if (d?.prix) cours[ticker] = d.prix
           } catch {
-            // Pas bloquant
+            // pas bloquant
           }
         })
       )
@@ -85,7 +124,7 @@ export default function Alertes() {
         await load()
       }
     } catch {
-      // Polling silencieux
+      // polling silencieux
     }
   }
 
@@ -161,13 +200,23 @@ export default function Alertes() {
   }
 
   async function removeAlerte(id) {
-    if (!window.confirm('Supprimer cette alerte ?')) return
     setError('')
     try {
       await api.del(`/alertes/${id}`)
+      setConfirmDeleteId(null)
       await load()
     } catch (e) {
       setError(e?.message || 'Suppression impossible')
+    }
+  }
+
+  async function reactiverAlerte(id) {
+    setError('')
+    try {
+      await api.post(`/alertes/${id}/reactiver`)
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Réactivation impossible')
     }
   }
 
@@ -183,22 +232,26 @@ export default function Alertes() {
           style={{
             marginBottom: 20,
             borderRadius: 12,
-            background: 'rgba(239,68,68,.12)',
-            border: '1px solid rgba(239,68,68,.45)',
+            background: 'rgba(239,68,68,.10)',
+            border: '1px solid rgba(239,68,68,.40)',
             padding: '14px 18px',
             display: 'flex',
             alignItems: 'flex-start',
             gap: 14,
           }}
         >
-          <span style={{ fontSize: '1.15rem', lineHeight: 1 }}>🔔</span>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 5,
+            background: 'var(--red)',
+            boxShadow: '0 0 0 4px rgba(239,68,68,.18)',
+          }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, color: 'var(--red)', marginBottom: 6, fontSize: '.88rem' }}>
-              {declencheesRecentes.length} alerte{declencheesRecentes.length > 1 ? 's' : ''} déclenchée{declencheesRecentes.length > 1 ? 's' : ''} !
+              {declencheesRecentes.length} alerte{declencheesRecentes.length > 1 ? 's' : ''} déclenchée{declencheesRecentes.length > 1 ? 's' : ''}
             </div>
             {declencheesRecentes.map((a, i) => (
               <div key={i} style={{ fontSize: '.82rem', color: 'var(--text-2)', lineHeight: 1.6 }}>
-                <strong style={{ color: 'var(--text-1)' }}>{a.ticker}</strong>
+                <strong style={{ color: 'var(--text)' }}>{a.ticker}</strong>
                 {a.nom ? ` — ${a.nom}` : ''} :{' '}
                 seuil {TYPE_LABELS[a.type_alerte] || a.type_alerte} à{' '}
                 <span style={{ color: TYPE_COLORS[a.type_alerte] || 'inherit' }}>{formatSeuil(a.seuil)}</span>
@@ -207,6 +260,7 @@ export default function Alertes() {
             ))}
           </div>
           <button
+            type="button"
             onClick={() => setDeclencheesRecentes([])}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '1.1rem', lineHeight: 1, padding: 0 }}
             aria-label="Fermer"
@@ -216,14 +270,12 @@ export default function Alertes() {
         </div>
       )}
 
-      {/* Erreur */}
       {error && (
         <div className="mb-4 rounded-xl border px-4 py-3 text-sm" style={{ borderColor: 'var(--red)', color: 'var(--red)', marginBottom: 16 }}>
           {error}
         </div>
       )}
 
-      {/* Hero */}
       <section className="hero-strip fade-up">
         <div className="hero-copy">
           <div className="hero-kicker">Suivi en temps réel</div>
@@ -298,8 +350,8 @@ export default function Alertes() {
                     flex: 1,
                     padding: '7px 12px',
                     borderRadius: 8,
-                    border: `1.5px solid ${form.type_alerte === t ? TYPE_COLORS[t] : 'var(--border)'}`,
-                    background: form.type_alerte === t ? (t === 'hausse' ? 'rgba(74,222,128,.1)' : 'rgba(239,68,68,.1)') : 'var(--surface)',
+                    border: `1.5px solid ${form.type_alerte === t ? TYPE_COLORS[t] : 'var(--line)'}`,
+                    background: form.type_alerte === t ? (t === 'hausse' ? 'rgba(24,195,126,.10)' : 'rgba(239,68,68,.10)') : 'transparent',
                     color: form.type_alerte === t ? TYPE_COLORS[t] : 'var(--text-2)',
                     fontFamily: 'var(--sans)',
                     fontSize: '.82rem',
@@ -333,64 +385,88 @@ export default function Alertes() {
         </button>
       </form>
 
-      {/* Tableau alertes actives */}
+      {/* Alertes actives */}
       <div className="card fade-up-2" style={{ marginBottom: 20 }}>
         <div className="card-label" style={{ marginBottom: 14 }}>
           Alertes actives
           {actives.length > 0 && (
-            <span style={{ marginLeft: 8, background: 'rgba(74,222,128,.15)', color: 'var(--green)', borderRadius: 20, padding: '1px 9px', fontSize: '.73rem', fontWeight: 700 }}>
+            <span style={{ marginLeft: 8, background: 'rgba(24,195,126,.15)', color: 'var(--green)', borderRadius: 20, padding: '1px 9px', fontSize: '.73rem', fontWeight: 700 }}>
               {actives.length}
             </span>
           )}
         </div>
 
         {loading ? (
-          <p className="text-text3" style={{ textAlign: 'center', padding: '24px 0' }}>Chargement...</p>
+          <p style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-3)', fontSize: '.85rem' }}>Chargement...</p>
         ) : actives.length === 0 ? (
-          <p className="text-text3" style={{ textAlign: 'center', padding: '24px 0', fontSize: '.85rem' }}>
-            Aucune alerte active. Créez votre première alerte ci-dessus.
-          </p>
+          <div className="empty">
+            <div className="empty-icon">◎</div>
+            <p>Aucune alerte active. Créez votre première alerte ci-dessus.</p>
+          </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
+          <div className="tbl-wrap">
+            <table>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['Ticker', 'Nom', 'Type', 'Seuil', 'Cours actuel', 'Écart', ''].map((h) => (
-                    <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: 'var(--text-3)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
+                <tr>
+                  <th>Ticker</th>
+                  <th>Nom</th>
+                  <th>Type</th>
+                  <th>Seuil</th>
+                  <th>Cours actuel</th>
+                  <th>Écart</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {actives.map((a) => {
                   const cours = coursCourants[a.ticker]
-                  const ecart = cours != null ? cours - a.seuil : null
-                  const ecartStr = ecart != null
-                    ? `${ecart >= 0 ? '+' : ''}${ecart.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 4 })}`
+                  const ecartAbs = cours != null ? cours - a.seuil : null
+                  const ecartPct = ecartAbs != null ? (ecartAbs / a.seuil) * 100 : null
+
+                  const ecartAbsStr = ecartAbs != null
+                    ? `${ecartAbs >= 0 ? '+' : ''}${ecartAbs.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 4 })}`
                     : '—'
-                  const ecartColor = ecart == null ? 'var(--text-3)' : a.type_alerte === 'hausse' ? (ecart >= 0 ? 'var(--green)' : 'var(--text-2)') : (ecart <= 0 ? 'var(--red)' : 'var(--text-2)')
+                  const ecartPctStr = ecartPct != null
+                    ? `${ecartPct >= 0 ? '+' : ''}${ecartPct.toFixed(2)} %`
+                    : ''
+
+                  const ecartColor = ecartAbs == null
+                    ? 'var(--text-3)'
+                    : a.type_alerte === 'hausse'
+                      ? (ecartAbs >= 0 ? 'var(--green)' : 'var(--text-2)')
+                      : (ecartAbs <= 0 ? 'var(--red)' : 'var(--text-2)')
 
                   return (
-                    <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                      <td style={{ padding: '9px 10px', fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--text-1)' }}>{a.ticker}</td>
-                      <td style={{ padding: '9px 10px', color: 'var(--text-2)' }}>{a.nom || '—'}</td>
-                      <td style={{ padding: '9px 10px' }}>
-                        <span style={{ color: TYPE_COLORS[a.type_alerte], fontWeight: 600, fontSize: '.78rem' }}>{TYPE_LABELS[a.type_alerte] || a.type_alerte}</span>
+                    <tr key={a.id}>
+                      <td className="td-mono" style={{ fontWeight: 700 }}>{a.ticker}</td>
+                      <td>{a.nom || '—'}</td>
+                      <td>
+                        <span style={{ color: TYPE_COLORS[a.type_alerte], fontWeight: 600, fontSize: '.78rem' }}>
+                          {TYPE_LABELS[a.type_alerte] || a.type_alerte}
+                        </span>
                       </td>
-                      <td style={{ padding: '9px 10px', fontFamily: 'var(--mono)', color: 'var(--text-1)' }}>{formatSeuil(a.seuil)}</td>
-                      <td style={{ padding: '9px 10px', fontFamily: 'var(--mono)', color: cours != null ? 'var(--text-1)' : 'var(--text-3)' }}>
+                      <td className="td-mono">{formatSeuil(a.seuil)}</td>
+                      <td className="td-mono" style={{ color: cours != null ? 'var(--text)' : 'var(--text-3)' }}>
                         {cours != null ? formatCours(cours) : '—'}
+                        {cours != null && <ProximityBar cours={cours} seuil={Number(a.seuil)} type={a.type_alerte} />}
                       </td>
-                      <td style={{ padding: '9px 10px', fontFamily: 'var(--mono)', color: ecartColor }}>{ecartStr}</td>
-                      <td style={{ padding: '9px 10px', textAlign: 'right' }}>
-                        <button
-                          onClick={() => removeAlerte(a.id)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '.9rem', padding: '2px 6px', borderRadius: 6, transition: 'color .15s' }}
-                          onMouseEnter={(e) => (e.target.style.color = 'var(--red)')}
-                          onMouseLeave={(e) => (e.target.style.color = 'var(--text-3)')}
-                          title="Supprimer"
-                        >
-                          ✕
-                        </button>
+                      <td className="td-mono" style={{ color: ecartColor }}>
+                        {ecartAbsStr}
+                        {ecartPctStr && (
+                          <div style={{ fontSize: '.7rem', marginTop: 2, opacity: 0.7 }}>{ecartPctStr}</div>
+                        )}
+                      </td>
+                      <td>
+                        <div className="actions-cell">
+                          {confirmDeleteId === a.id ? (
+                            <>
+                              <button type="button" className="btn btn-danger btn-sm" onClick={() => removeAlerte(a.id)}>Confirmer</button>
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmDeleteId(null)}>Annuler</button>
+                            </>
+                          ) : (
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmDeleteId(a.id)}>✕</button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -401,39 +477,53 @@ export default function Alertes() {
         )}
       </div>
 
-      {/* Tableau historique alertes déclenchées */}
+      {/* Historique alertes déclenchées */}
       {historique.length > 0 && (
         <div className="card fade-up-2">
           <div className="card-label" style={{ marginBottom: 14 }}>Historique — alertes déclenchées</div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
+          <div className="tbl-wrap">
+            <table>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['Ticker', 'Nom', 'Type', 'Seuil', 'Déclenchée le', ''].map((h) => (
-                    <th key={h} style={{ padding: '8px 10px', textAlign: 'left', color: 'var(--text-3)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
+                <tr>
+                  <th>Ticker</th>
+                  <th>Nom</th>
+                  <th>Type</th>
+                  <th>Seuil</th>
+                  <th>Déclenchée le</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {historique.map((a) => (
-                  <tr key={a.id} style={{ borderBottom: '1px solid rgba(255,255,255,.04)', opacity: 0.7 }}>
-                    <td style={{ padding: '9px 10px', fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--text-2)' }}>{a.ticker}</td>
-                    <td style={{ padding: '9px 10px', color: 'var(--text-3)' }}>{a.nom || '—'}</td>
-                    <td style={{ padding: '9px 10px' }}>
-                      <span style={{ color: TYPE_COLORS[a.type_alerte], fontWeight: 600, fontSize: '.78rem', opacity: 0.75 }}>{TYPE_LABELS[a.type_alerte] || a.type_alerte}</span>
+                  <tr key={a.id} style={{ opacity: 0.65 }}>
+                    <td className="td-mono" style={{ fontWeight: 700 }}>{a.ticker}</td>
+                    <td style={{ color: 'var(--text-2)' }}>{a.nom || '—'}</td>
+                    <td>
+                      <span style={{ color: TYPE_COLORS[a.type_alerte], fontWeight: 600, fontSize: '.78rem', opacity: 0.75 }}>
+                        {TYPE_LABELS[a.type_alerte] || a.type_alerte}
+                      </span>
                     </td>
-                    <td style={{ padding: '9px 10px', fontFamily: 'var(--mono)', color: 'var(--text-3)' }}>{formatSeuil(a.seuil)}</td>
-                    <td style={{ padding: '9px 10px', color: 'var(--text-3)', fontFamily: 'var(--mono)', fontSize: '.78rem' }}>{formatDate(a.declenchee_le)}</td>
-                    <td style={{ padding: '9px 10px', textAlign: 'right' }}>
-                      <button
-                        onClick={() => removeAlerte(a.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '.9rem', padding: '2px 6px', borderRadius: 6, transition: 'color .15s' }}
-                        onMouseEnter={(e) => (e.target.style.color = 'var(--red)')}
-                        onMouseLeave={(e) => (e.target.style.color = 'var(--text-3)')}
-                        title="Supprimer"
-                      >
-                        ✕
-                      </button>
+                    <td className="td-mono">{formatSeuil(a.seuil)}</td>
+                    <td className="td-mono dim" style={{ fontSize: '.78rem' }}>{formatDate(a.declenchee_le)}</td>
+                    <td>
+                      <div className="actions-cell">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => reactiverAlerte(a.id)}
+                          title="Remettre cette alerte en surveillance"
+                        >
+                          Réactiver
+                        </button>
+                        {confirmDeleteId === a.id ? (
+                          <>
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => removeAlerte(a.id)}>Confirmer</button>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmDeleteId(null)}>Annuler</button>
+                          </>
+                        ) : (
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmDeleteId(a.id)}>✕</button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

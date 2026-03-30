@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import DateInput from '../components/DateInput'
 
 function eur(n) {
   const fmt = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(Number(n || 0))
@@ -31,6 +32,7 @@ export default function AssuranceVie() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState(emptyForm)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   const formOpen = searchParams.get('new') === '1'
   const editId = searchParams.get('edit')
@@ -116,10 +118,10 @@ export default function AssuranceVie() {
   }
 
   async function removeContrat(id) {
-    if (!window.confirm('Supprimer ce contrat ?')) return
     setError('')
     try {
       await api.del(`/assurance-vie/${id}`)
+      setConfirmDeleteId(null)
       await load()
     } catch (e) {
       setError(e?.message || 'Suppression impossible')
@@ -128,6 +130,10 @@ export default function AssuranceVie() {
 
   const contrats = payload?.contrats || []
   const stats = payload?.stats || {}
+  const pvRaw = Number(stats.pv_latente || 0)
+  const versRaw = Number(stats.total_versements || 0)
+  const pvClass = 'stat-value ' + (pvRaw >= 0 ? 'green' : 'red')
+  const pvSubText = versRaw > 0 ? ((pvRaw / versRaw) * 100).toFixed(2) + ' % depuis l\u0027origine' : 'Depuis l\u0027origine'
 
   return (
     <section>
@@ -163,8 +169,8 @@ export default function AssuranceVie() {
         </div>
         <div className="stat">
           <div className="stat-label">Performance latente</div>
-          <div className={`stat-value ${Number(stats.pv_latente || 0) >= 0 ? 'green' : 'red'}`}>{eur(stats.pv_latente)}</div>
-          <div className="stat-sub">Depuis l’origine</div>
+          <div className={pvClass}>{eur(stats.pv_latente)}</div>
+          <div className="stat-sub">{pvSubText}</div>
         </div>
       </div>
 
@@ -206,7 +212,14 @@ export default function AssuranceVie() {
                       <td>
                         <div className="actions-cell">
                           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(c)}>Éditer</button>
-                          <button type="button" className="btn btn-danger btn-sm" onClick={() => removeContrat(c.id)}>✕</button>
+                          {confirmDeleteId === c.id ? (
+                            <>
+                              <button type="button" className="btn btn-danger btn-sm" onClick={() => removeContrat(c.id)}>Confirmer</button>
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmDeleteId(null)}>Annuler</button>
+                            </>
+                          ) : (
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmDeleteId(c.id)}>✕</button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -261,7 +274,7 @@ export default function AssuranceVie() {
             </div>
             <div className="form-group">
               <label className="form-label">Date de mise à jour</label>
-              <input type="date" className="form-input" value={form.date_maj} onChange={(e) => setForm((f) => ({ ...f, date_maj: e.target.value }))} />
+              <DateInput value={form.date_maj} onChange={(v) => setForm((f) => ({ ...f, date_maj: v }))} />
             </div>
           </div>
 
@@ -287,7 +300,6 @@ export default function AssuranceVie() {
         </form>
       )}
 
-      {loading && <p className="text-text2">Chargement...</p>}
     </section>
   )
 }

@@ -537,6 +537,7 @@ def init_db():
     except Exception:
         pass
 
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS dividendes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2592,6 +2593,17 @@ def desactiver_alerte(id):
     conn.close()
 
 
+def reactiver_alerte(id):
+    conn = get_db()
+    conn.execute(
+        "UPDATE alertes SET active=1, declenchee_le=NULL WHERE id=?",
+        (id,),
+    )
+    _record_sync_upsert(conn, "alertes", int(id))
+    conn.commit()
+    conn.close()
+
+
 def reset_all_data():
     conn = get_db()
     c = conn.cursor()
@@ -2606,14 +2618,7 @@ def reset_all_data():
     c.execute('DELETE FROM comptes_etrangers')
     c.execute('DELETE FROM dividendes')
     c.execute('DELETE FROM alertes')
-    c.execute('''
-        UPDATE profil 
-        SET horizon='long', risque='equilibre', objectif='croissance', strategie='mixte',
-            style_ia='detaille', ton_ia='informel', secteurs_exclus='[]', pays_exclus='[]',
-            benchmark='CW8.PA', tier='free', is_demo=0
-        WHERE id=1
-    ''')
-    _record_sync_upsert(conn, 'profil', 1)
+    c.execute('DELETE FROM profil WHERE id=1')
     conn.commit()
     conn.close()
 

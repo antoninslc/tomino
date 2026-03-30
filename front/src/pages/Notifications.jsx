@@ -12,7 +12,7 @@ function formatDate(date) {
     const now = new Date()
     const diff = now - date
     const minutes = Math.floor(diff / 60000)
-    if (minutes < 1) return "A l'instant"
+    if (minutes < 1) return "À l'instant"
     if (minutes < 60) return `Il y a ${minutes} min`
     const hours = Math.floor(minutes / 60)
     if (hours < 24) return `Il y a ${hours} h`
@@ -32,7 +32,7 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
 }
 
-function IconAlerte({ type }) {
+function IconAlerte() {
   return (
     <svg width="14" height="14" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M1.5 5.5H5L10 2V13L5 9.5H1.5V5.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" fill="currentColor" fillOpacity=".1"/>
@@ -52,7 +52,6 @@ function IconBackup() {
 }
 
 export default function Notifications() {
-  // Capture la valeur de lastSeen au moment du montage pour savoir quelles notifs sont non lues
   const lastSeenAtOnMount = useRef(localStorage.getItem(LAST_SEEN_KEY) || null)
   const [notifs, setNotifs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -63,13 +62,12 @@ export default function Notifications() {
       try {
         const [alertesData, backupData] = await Promise.all([
           api.get('/alertes'),
-          api.get('/backup/auto/status').catch(() => null)
+          api.get('/backup/auto/status').catch(() => null),
         ])
 
         const items = []
 
-        // Alertes declenchees
-        const triggered = (alertesData?.alertes || []).filter(a => a.active === 0)
+        const triggered = (alertesData?.alertes || []).filter((a) => a.active === 0)
         for (const a of triggered) {
           const date = a.declenchee_le ? new Date(a.declenchee_le) : null
           items.push({
@@ -83,7 +81,6 @@ export default function Notifications() {
           })
         }
 
-        // Sauvegardes
         if (backupData?.ok) {
           if (backupData.last_daily) {
             const date = backupData.last_daily.updated_at ? new Date(backupData.last_daily.updated_at) : null
@@ -107,7 +104,6 @@ export default function Notifications() {
           }
         }
 
-        // Trier par date desc (plus récente en haut), sans date à la fin
         items.sort((a, b) => {
           if (!a.date && !b.date) return 0
           if (!a.date) return 1
@@ -117,7 +113,6 @@ export default function Notifications() {
 
         if (mounted) {
           setNotifs(items)
-          // Marquer comme lu maintenant — le rendu va utiliser lastSeenAtOnMount.current (l'ancienne valeur)
           localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString())
         }
       } catch {
@@ -136,115 +131,121 @@ export default function Notifications() {
     return notif.date > new Date(lastSeenAtOnMount.current)
   }
 
-  if (loading) {
-    return (
-      <p style={{ padding: '2rem', fontFamily: 'var(--mono)', fontSize: '0.85rem', color: 'var(--text2)' }}>
-        Chargement...
-      </p>
-    )
-  }
-
-  if (notifs.length === 0) {
-    return (
-      <div className="fade-up" style={{ maxWidth: 560 }}>
-        <div className="card" style={{ textAlign: 'center', padding: '2.5rem 2rem' }}>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: '0.85rem', color: 'var(--text2)', marginBottom: '0.5rem' }}>
-            Aucune notification
-          </p>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: '0.75rem', color: 'var(--text3)' }}>
-            Les alertes declenchees et les sauvegardes automatiques apparaitront ici.
-          </p>
-        </div>
-      </div>
-    )
-  }
+  const unreadCount = notifs.filter(isUnread).length
 
   return (
-    <div className="fade-up" style={{ display: 'grid', gap: '0.5rem', maxWidth: 560 }}>
-      {notifs.map(notif => {
-        const unread = isUnread(notif)
-        return (
-          <div
-            key={notif.id}
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '0.75rem',
-              padding: '0.75rem 1rem',
-              background: unread ? 'rgba(201, 168, 76, 0.05)' : 'var(--bg1)',
-              border: `1px solid ${unread ? 'rgba(201, 168, 76, 0.18)' : 'var(--line)'}`,
-              borderLeft: `2px solid ${unread ? 'var(--gold)' : 'var(--line)'}`,
-              borderRadius: 6,
-            }}
-          >
-            {/* Icone type */}
-            <span style={{
-              flexShrink: 0,
-              marginTop: 2,
-              color: notif.type === 'alerte'
-                ? (notif.alerteType === 'hausse' ? 'var(--green)' : 'var(--red)')
-                : 'var(--text2)',
-              opacity: unread ? 1 : 0.6,
-            }}>
-              {notif.type === 'alerte' ? <IconAlerte type={notif.alerteType} /> : <IconBackup />}
-            </span>
-
-            {/* Contenu */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{
-                fontSize: '0.85rem',
-                fontFamily: 'var(--sans)',
-                color: unread ? 'var(--text)' : 'var(--text2)',
-                fontWeight: unread ? 500 : 400,
-                marginBottom: 2,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}>
-                {notif.title}
-                {notif.ticker && notif.ticker !== notif.title && (
-                  <span style={{ marginLeft: 6, fontSize: '0.72rem', fontFamily: 'var(--mono)', color: 'var(--text3)', fontWeight: 400 }}>
-                    {notif.ticker}
-                  </span>
-                )}
-              </div>
-              <div style={{
-                fontSize: '0.75rem',
-                fontFamily: 'var(--mono)',
-                color: 'var(--text2)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}>
-                {notif.subtitle}
-              </div>
-            </div>
-
-            {/* Date + lien */}
-            <div style={{ flexShrink: 0, textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-              <span style={{ fontSize: '0.72rem', fontFamily: 'var(--mono)', color: 'var(--text3)', whiteSpace: 'nowrap' }}>
-                {formatDate(notif.date)}
-              </span>
-              {notif.type === 'alerte' && (
-                <Link
-                  to="/alertes"
-                  style={{ fontSize: '0.68rem', fontFamily: 'var(--mono)', color: 'var(--text3)', textDecoration: 'none', opacity: 0.7 }}
-                >
-                  Voir
-                </Link>
-              )}
-              {notif.type === 'backup' && (
-                <Link
-                  to="/settings/export/backup"
-                  style={{ fontSize: '0.68rem', fontFamily: 'var(--mono)', color: 'var(--text3)', textDecoration: 'none', opacity: 0.7 }}
-                >
-                  Voir
-                </Link>
-              )}
-            </div>
+    <section>
+      <section className="hero-strip fade-up">
+        <div className="hero-copy">
+          <div className="hero-kicker">Centre de notifications</div>
+          <h1 className="hero-title" style={{ maxWidth: 'none' }}>Activité récente.</h1>
+          <p className="hero-subtitle">
+            Alertes déclenchées et sauvegardes automatiques. Les nouvelles notifications apparaissent en surbrillance.
+          </p>
+        </div>
+        <div className="card" style={{ minWidth: 220, maxWidth: 300 }}>
+          <div className="card-label">Non lues</div>
+          <div className="stat-value" style={{ color: unreadCount > 0 ? 'var(--gold)' : 'var(--text-3)' }}>
+            {loading ? '—' : unreadCount}
           </div>
-        )
-      })}
-    </div>
+          <div className="stat-sub">{loading ? '' : `${notifs.length} au total`}</div>
+        </div>
+      </section>
+
+      {loading && (
+        <p style={{ color: 'var(--text-3)', fontSize: '.85rem', fontFamily: 'var(--mono)', padding: '24px 0' }}>
+          Chargement...
+        </p>
+      )}
+
+      {!loading && notifs.length === 0 && (
+        <div className="card fade-up" style={{ maxWidth: 560 }}>
+          <div className="empty">
+            <div className="empty-icon">◌</div>
+            <p>Aucune notification pour le moment.</p>
+            <span style={{ fontSize: '.78rem', color: 'var(--text-3)' }}>
+              Les alertes déclenchées et les sauvegardes automatiques apparaîtront ici.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {!loading && notifs.length > 0 && (
+        <div className="fade-up" style={{ display: 'grid', gap: 6, maxWidth: 640 }}>
+          {notifs.map((notif) => {
+            const unread = isUnread(notif)
+            const accentColor = notif.type === 'alerte'
+              ? (notif.alerteType === 'hausse' ? 'var(--green)' : 'var(--red)')
+              : 'var(--text-3)'
+
+            return (
+              <div
+                key={notif.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 14,
+                  padding: '14px 16px',
+                  background: unread ? 'rgba(201,168,76,0.05)' : 'var(--bg-elev)',
+                  border: `1px solid ${unread ? 'rgba(201,168,76,0.20)' : 'var(--line)'}`,
+                  borderLeft: `3px solid ${unread ? 'var(--gold)' : 'var(--line)'}`,
+                  borderRadius: 12,
+                }}
+              >
+                <span style={{
+                  flexShrink: 0,
+                  marginTop: 2,
+                  color: accentColor,
+                  opacity: unread ? 1 : 0.5,
+                }}>
+                  {notif.type === 'alerte' ? <IconAlerte /> : <IconBackup />}
+                </span>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: '.86rem',
+                    color: unread ? 'var(--text)' : 'var(--text-2)',
+                    fontWeight: unread ? 600 : 400,
+                    marginBottom: 3,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}>
+                    {notif.title}
+                    {notif.ticker && notif.ticker !== notif.title && (
+                      <span style={{ marginLeft: 6, fontSize: '.72rem', fontFamily: 'var(--mono)', color: 'var(--text-3)', fontWeight: 400 }}>
+                        {notif.ticker}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{
+                    fontSize: '.75rem',
+                    fontFamily: 'var(--mono)',
+                    color: 'var(--text-3)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}>
+                    {notif.subtitle}
+                  </div>
+                </div>
+
+                <div style={{ flexShrink: 0, textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
+                  <span style={{ fontSize: '.72rem', fontFamily: 'var(--mono)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+                    {formatDate(notif.date)}
+                  </span>
+                  <Link
+                    to={notif.type === 'alerte' ? '/alertes' : '/settings/export/backup'}
+                    style={{ fontSize: '.7rem', fontFamily: 'var(--mono)', color: 'var(--text-3)', textDecoration: 'none' }}
+                  >
+                    Voir →
+                  </Link>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }
