@@ -7,7 +7,7 @@
   },
   "package": {
     "productName": "Tomino",
-    "version": "0.1.7"
+    "version": "0.1.8"
   },
   "tauri": {
     "allowlist": {
@@ -47,7 +47,23 @@
       "windows": {
         "certificateThumbprint": null,
         "digestAlgorithm": "sha256",
-        "timestampUrl": ""
+        "timestampUrl": "",
+        "nsis": {
+          "headerImage": "installer/nsis-header.bmp",
+          "sidebarImage": "installer/nsis-sidebar.bmp",
+          "installerIcon": "icons/icon.ico",
+          "installMode": "currentUser",
+          "languages": [
+            "French"
+          ]
+        },
+        "wix": {
+          "bannerPath": "installer/wix-banner.bmp",
+          "dialogImagePath": "installer/wix-dialog.bmp",
+          "language": [
+            "French"
+          ]
+        }
       }
     },
     "security": {
