@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { api } from '../api'
+import CustomSelect from '../components/CustomSelect'
 
-const TOTAL_STEPS = 5
+const TOTAL_STEPS = 6
 
 const STEP_1 = [
   { label: 'Court terme (< 3 ans)', value: 'court' },
@@ -53,6 +54,23 @@ const BENCHMARKS = [
   { label: 'S&P 500 (PSP5.PA)', value: 'PSP5.PA' },
 ]
 
+const ENV_OPTIONS = [
+  { value: 'PEA', label: 'PEA' },
+  { value: 'CTO', label: 'CTO' },
+  { value: 'OR', label: 'Or / matières premières' },
+]
+
+const TYPE_OPTIONS = [
+  { value: 'etf', label: 'ETF' },
+  { value: 'action', label: 'Action' },
+]
+
+const TYPE_OPTIONS_OR = [
+  { value: 'or', label: 'Or / matière première' },
+  { value: 'etf', label: 'ETF' },
+  { value: 'action', label: 'Action' },
+]
+
 function ChoiceCard({ selected, label, onClick, multi = false }) {
   return (
     <button
@@ -92,6 +110,16 @@ export default function Onboarding() {
   const [secteursExclus, setSecteursExclus] = useState([])
   const [benchmark, setBenchmark] = useState('')
 
+  // Étape 6 — import positions existantes
+  const [snapEnv, setSnapEnv] = useState('PEA')
+  const [snapForm, setSnapForm] = useState({ nom: '', ticker: '', type: 'etf', quantite: '', pru: '', date_debut: new Date().toISOString().slice(0, 10) })
+  const [snapSaving, setSnapSaving] = useState(false)
+  const [snapSugg, setSnapSugg] = useState([])
+  const [snapShowSugg, setSnapShowSugg] = useState(false)
+  const [snapFocusedIdx, setSnapFocusedIdx] = useState(-1)
+  const [snapAdded, setSnapAdded] = useState([])
+  const snapNameRef = useRef(null)
+
   const progress = useMemo(() => (step / TOTAL_STEPS) * 100, [step])
 
   function toggleSecteur(value) {
@@ -111,41 +139,100 @@ export default function Onboarding() {
     if (step === 3) return Boolean(objectif)
     if (step === 4) return Boolean(strategie && styleIa && tonIa)
     if (step === 5) return Boolean(benchmark)
+    if (step === 6) return true
     return false
   }
 
-  async function finish() {
-    if (!canGoNext() || saving) return
-    setSaving(true)
-    setError('')
-    try {
-      await api.post('/profil', {
-        horizon,
-        risque,
-        objectif,
-        strategie,
-        style_ia: styleIa,
-        ton_ia: tonIa,
-        secteurs_exclus: secteursExclus,
-        pays_exclus: [],
-        benchmark,
-      })
-      localStorage.setItem('tomino_onboarding_done', '1')
-      window.location.href = '/'
-    } catch (e) {
-      setError(e?.message || "Impossible d'enregistrer le profil.")
-    } finally {
-      setSaving(false)
-    }
+  async function saveProfile() {
+    await api.post('/profil', {
+      horizon,
+      risque,
+      objectif,
+      strategie,
+      style_ia: styleIa,
+      ton_ia: tonIa,
+      secteurs_exclus: secteursExclus,
+      pays_exclus: [],
+      benchmark,
+    })
+    localStorage.setItem('tomino_onboarding_done', '1')
   }
 
-  function next() {
+  async function next() {
     if (!canGoNext()) return
+    if (step === 5) {
+      setSaving(true)
+      setError('')
+      try {
+        await saveProfile()
+        setStep(6)
+        setTimeout(() => snapNameRef.current?.focus(), 120)
+      } catch (e) {
+        setError(e?.message || "Impossible d'enregistrer le profil.")
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
     if (step < TOTAL_STEPS) setStep((s) => s + 1)
   }
 
   function prev() {
-    if (step > 1) setStep((s) => s - 1)
+    if (step > 1 && step !== 6) setStep((s) => s - 1)
+  }
+
+  async function finish() {
+    window.location.href = '/'
+  }
+
+  async function searchSnapTicker(q) {
+    const query = q.trim()
+    if (query.length < 2) { setSnapSugg([]); setSnapShowSugg(false); return }
+    try {
+      const data = await api.get(`/search?q=${encodeURIComponent(query)}`)
+      setSnapSugg(Array.isArray(data) ? data : [])
+      setSnapShowSugg(Array.isArray(data) && data.length > 0)
+      setSnapFocusedIdx(-1)
+    } catch {
+      setSnapSugg([])
+      setSnapShowSugg(false)
+    }
+  }
+
+  function pickSnapSuggestion(item) {
+    const inferredType = item.type === 'etf' || item.type === 'mutualfund' ? 'etf' : item.type === 'equity' ? 'action' : snapForm.type
+    setSnapForm((f) => ({ ...f, nom: item.name || f.nom, ticker: String(item.symbol || '').toUpperCase(), type: inferredType }))
+    setSnapSugg([])
+    setSnapShowSugg(false)
+  }
+
+  async function submitSnap(e) {
+    e.preventDefault()
+    if (snapSaving) return
+    setSnapSaving(true)
+    setError('')
+    try {
+      const res = await api.post('/actifs/snapshot', {
+        enveloppe: snapEnv,
+        nom: snapForm.nom,
+        ticker: snapForm.ticker,
+        type: snapForm.type,
+        categorie: 'coeur',
+        quantite: Number(snapForm.quantite || 0),
+        pru: Number(snapForm.pru || 0),
+        date_debut: snapForm.date_debut,
+      })
+      if (!res?.ok) throw new Error(res?.erreur || 'Erreur')
+      setSnapAdded((prev) => [...prev, { env: snapEnv, nom: snapForm.nom, ticker: snapForm.ticker, quantite: snapForm.quantite, pru: snapForm.pru }])
+      setSnapForm((f) => ({ nom: '', ticker: '', type: 'etf', quantite: '', pru: '', date_debut: f.date_debut }))
+      setSnapSugg([])
+      setSnapShowSugg(false)
+      setTimeout(() => snapNameRef.current?.focus(), 80)
+    } catch (e2) {
+      setError(e2?.message || "Erreur lors de l'import")
+    } finally {
+      setSnapSaving(false)
+    }
   }
 
   return (
@@ -229,7 +316,7 @@ export default function Onboarding() {
           {step === 5 && (
             <>
               <h1 style={{ fontSize: '2rem', lineHeight: 1.1, letterSpacing: '-.03em', marginBottom: 10 }}>Exclusions et benchmark</h1>
-              <p style={{ color: 'var(--text-2)', marginBottom: 16 }}>Dernière étape avant d'activer Tomino Intelligence.</p>
+              <p style={{ color: 'var(--text-2)', marginBottom: 16 }}>Avant-dernière étape avant d'activer Tomino Intelligence.</p>
 
               <h2 style={{ fontSize: '.9rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.1em', color: 'var(--text-3)', marginBottom: 10 }}>Secteurs à exclure</h2>
               <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
@@ -256,6 +343,96 @@ export default function Onboarding() {
             </>
           )}
 
+          {step === 6 && (
+            <>
+              <h1 style={{ fontSize: '2rem', lineHeight: 1.1, letterSpacing: '-.03em', marginBottom: 8 }}>Avez-vous déjà un portefeuille ?</h1>
+              <p style={{ color: 'var(--text-2)', marginBottom: 20, lineHeight: 1.5 }}>
+                Entrez vos positions telles qu'elles apparaissent chez votre courtier. Le PRU est affiché sous "Prix de revient" ou "PRU". Cette étape est facultative — vous pourrez toujours les ajouter plus tard.
+              </p>
+
+              <form onSubmit={submitSnap} style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 120 }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>Enveloppe</div>
+                    <CustomSelect options={ENV_OPTIONS} value={snapEnv} onChange={(v) => setSnapEnv(v)} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 160, position: 'relative' }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>Nom / Ticker *</div>
+                    <input
+                      ref={snapNameRef}
+                      required
+                      type="text"
+                      className="form-input"
+                      placeholder="Ex: CW8.PA, AAPL…"
+                      value={snapForm.nom}
+                      autoComplete="off"
+                      onChange={(e) => {
+                        setSnapForm((f) => ({ ...f, nom: e.target.value, ticker: '' }))
+                        searchSnapTicker(e.target.value)
+                      }}
+                      onKeyDown={(e) => {
+                        if (!snapShowSugg || !snapSugg.length) return
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setSnapFocusedIdx((i) => Math.min(i + 1, snapSugg.length - 1)) }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); setSnapFocusedIdx((i) => Math.max(i - 1, 0)) }
+                        else if (e.key === 'Enter' && snapFocusedIdx >= 0) { e.preventDefault(); pickSnapSuggestion(snapSugg[snapFocusedIdx]) }
+                        else if (e.key === 'Escape') setSnapShowSugg(false)
+                      }}
+                    />
+                    {snapShowSugg && snapSugg.length > 0 && (
+                      <ul className="suggestions">
+                        {snapSugg.map((item, i) => (
+                          <li key={item.symbol || i} className={snapFocusedIdx === i ? 'focused' : ''} onMouseDown={() => pickSnapSuggestion(item)}>
+                            <span className="sug-name">{item.name}</span>
+                            <span className="sug-meta">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ''}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
+                  <div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>Type</div>
+                    <CustomSelect options={snapEnv === 'OR' ? TYPE_OPTIONS_OR : TYPE_OPTIONS} value={snapForm.type} onChange={(v) => setSnapForm((f) => ({ ...f, type: v }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>Quantité *</div>
+                    <input required type="number" step="any" min="0.0001" className="form-input" placeholder="Ex: 12.5" value={snapForm.quantite} onChange={(e) => setSnapForm((f) => ({ ...f, quantite: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>PRU (EUR) *</div>
+                    <input required type="number" step="0.0001" min="0.0001" className="form-input" placeholder="Ex: 342.50" value={snapForm.pru} onChange={(e) => setSnapForm((f) => ({ ...f, pru: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 6 }}>Date de réf.</div>
+                    <input type="date" className="form-input" value={snapForm.date_debut} onChange={(e) => setSnapForm((f) => ({ ...f, date_debut: e.target.value }))} />
+                  </div>
+                </div>
+
+                <button type="submit" className="btn btn-ghost btn-sm" disabled={snapSaving}>
+                  {snapSaving ? 'Ajout...' : '+ Ajouter cette ligne'}
+                </button>
+              </form>
+
+              {snapAdded.length > 0 && (
+                <div>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', letterSpacing: '.15em', textTransform: 'uppercase', marginBottom: 8 }}>
+                    {snapAdded.length} position{snapAdded.length > 1 ? 's' : ''} importée{snapAdded.length > 1 ? 's' : ''}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {snapAdded.map((p, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.82rem', padding: '6px 10px', background: 'rgba(74,158,106,.08)', border: '1px solid rgba(74,158,106,.2)', borderRadius: 8 }}>
+                        <span style={{ color: 'var(--text-1)' }}>{p.env} · {p.nom}{p.ticker ? ` (${p.ticker})` : ''}</span>
+                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-3)', fontSize: '.75rem' }}>{p.quantite} × {p.pru} EUR</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
           {error && (
             <div style={{ marginTop: 14, border: '1px solid rgba(255,80,80,.45)', color: '#ff8585', borderRadius: 12, padding: '10px 12px', fontSize: '.88rem' }}>
               {error}
@@ -266,18 +443,18 @@ export default function Onboarding() {
             {step === 1 ? (
               <button type="button" className="btn btn-ghost" onClick={() => window.location.href = '/welcome'}>Annuler</button>
             ) : (
-              <button type="button" className="btn btn-ghost" onClick={prev}>Précédent</button>
+              <button type="button" className="btn btn-ghost" onClick={prev} disabled={step === 6}>Précédent</button>
             )}
             {step < TOTAL_STEPS ? (
               canGoNext() && (
-                <button type="button" className="btn btn-primary" onClick={next}>Suivant</button>
-              )
-            ) : (
-              canGoNext() && (
-                <button type="button" className="btn btn-primary" onClick={finish} disabled={saving}>
-                  {saving ? 'Enregistrement...' : 'Terminer'}
+                <button type="button" className="btn btn-primary" onClick={next} disabled={saving}>
+                  {saving ? 'Enregistrement...' : 'Suivant'}
                 </button>
               )
+            ) : (
+              <button type="button" className="btn btn-primary" onClick={finish}>
+                {snapAdded.length > 0 ? `Terminer (${snapAdded.length} position${snapAdded.length > 1 ? 's' : ''} importée${snapAdded.length > 1 ? 's' : ''})` : 'Passer cette étape'}
+              </button>
             )}
           </div>
         </div>
