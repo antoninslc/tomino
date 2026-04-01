@@ -643,4 +643,233 @@ def import_dividendes_auto() -> int:
             logger.warning("Import dividendes: erreur sur %s (%s)", ticker, exc)
             continue
 
+
+# ── STOCK PICKING ──────────────────────────────────────────
+
+def _safe_float(val):
+    try:
+        v = float(val)
+        return None if (v != v) else v  # NaN check
+    except Exception:
+        return None
+
+
+# Exchanges considered "primary" for deduplication (prefer these over regional ones)
+_PRIMARY_EXCHANGES = {
+    "NMS", "NGM", "NCM", "NYQ", "AMX",  # US
+    "PA", "L", "AS", "DE", "MI", "SW", "VX", "MC", "BR", "CO", "ST", "HE", "OL", "LS",  # EU
+    "TYO", "HKG", "SHH", "SHZ",  # Asia
+}
+# Regional/secondary exchanges to deprioritize when a primary listing exists
+_REGIONAL_EXCHANGES = {"HM", "MU", "F", "BE", "DU", "SG", "HAN", "VI", "MX", "BA", "PCX"}
+
+import re as _re
+_ISIN_TICKER = _re.compile(r'^[A-Z]{2}[A-Z0-9]{9,11}\.[A-Z]+$')
+_ALLOWED_TYPES = {"EQUITY", "ETF", "MUTUALFUND"}
+
+
+def _normalize_company_name(name: str) -> str:
+    """Normalize a company name for deduplication (strip legal suffixes, case, trailing A)."""
+    n = (name or "").lower().strip()
+    n = _re.sub(r'\b(se|sa|ag|plc|inc|corp|ltd|nv|bv|spa|ab|asa|oyj|a/s)\b\.?\s*$', '', n).strip()
+    n = _re.sub(r'\s+a\s*$', '', n).strip()  # "Airbus SE A" -> "airbus"
+    return n
+
+
+def _dedup_search(results: list, name_key: str = "nom", exchange_key: str = "exchange") -> list:
+    """
+    Deduplicate search results by normalized company name.
+    Keeps the first occurrence per company, but upgrades to a primary exchange
+    if the first occurrence landed on a regional one.
+    """
+    seen: dict = {}   # normalized_name -> index in output
+    output = []
+    for item in results:
+        key = _normalize_company_name(item.get(name_key, ""))
+        if not key:
+            output.append(item)
+            continue
+        if key not in seen:
+            seen[key] = len(output)
+            output.append(item)
+        else:
+            # Upgrade: replace regional with primary exchange for same company
+            idx = seen[key]
+            existing_ex = output[idx].get(exchange_key, "")
+            new_ex = item.get(exchange_key, "")
+            if existing_ex in _REGIONAL_EXCHANGES and new_ex in _PRIMARY_EXCHANGES:
+                output[idx] = item
+    return output
+
+
+def search_tickers(query: str) -> list:
+    """Autocomplete ticker via Yahoo Finance search."""
+    if not query or len(query.strip()) < 1:
+        return []
+    try:
+        url = "https://query1.finance.yahoo.com/v1/finance/search"
+        params = {"q": query.strip(), "quotesCount": 15, "newsCount": 0, "enableFuzzyQuery": False}
+        r = _get_session().get(url, params=params, timeout=6)
+        r.raise_for_status()
+        quotes = r.json().get("quotes", [])
+        results = []
+        for q in quotes:
+            ticker = q.get("symbol", "")
+            quote_type = q.get("quoteType", "")
+            if not ticker:
+                continue
+            # Filter out structured products / certificates (ISIN-based tickers)
+            if _ISIN_TICKER.match(ticker):
+                continue
+            # Keep only equities, ETFs and mutual funds
+            if quote_type not in _ALLOWED_TYPES:
+                continue
+            results.append({
+                "ticker": ticker,
+                "nom": q.get("shortname") or q.get("longname") or ticker,
+                "type": quote_type,
+                "exchange": q.get("exchange", ""),
+            })
+        return _dedup_search(results)[:8]
+    except Exception as e:
+        logger.warning("search_tickers(%s): %s", query, e)
+        return []
+
+
+def get_stock_fundamentals(ticker: str, force: bool = False) -> dict:
+    """
+    Récupère les données fondamentales via yfinance.
+    Fallback v8/chart si yfinance échoue (données limitées).
+    """
+    import yfinance as yf
+
+    ticker = str(ticker).strip().upper()
+    cache_key = f"fundamentals_{ticker}"
+    now = time.time()
+
+    if not force:
+        with _cache_lock:
+            entry = _cache.get(cache_key)
+            if isinstance(entry, dict) and now - entry.get("timestamp", 0) < 900:
+                return dict(entry.get("value", {}))
+
+    # ── yfinance ────────────────────────────────────────────
+    try:
+        info = yf.Ticker(ticker).info
+        cours = _safe_float(info.get("currentPrice") or info.get("regularMarketPrice"))
+        if not cours:
+            raise ValueError("pas de cours")
+
+        prev = _safe_float(info.get("previousClose") or info.get("regularMarketPreviousClose"))
+        # Stocker en décimal (0.018 = 1.8%) pour compatibilité avec pct() côté frontend
+        chg = _safe_float(info.get("regularMarketChangePercent"))
+        if chg is not None:
+            variation = round(chg / 100, 4)
+        elif prev and prev != 0:
+            variation = round((cours - prev) / prev, 4)
+        else:
+            variation = None
+
+        reco_key = str(info.get("recommendationKey") or "").lower()
+        nb_analystes = int(info.get("numberOfAnalystOpinions") or 0)
+
+        data = {
+            "ticker": ticker,
+            "nom": info.get("longName") or info.get("shortName") or ticker,
+            "nom_court": info.get("shortName") or ticker,
+            "devise": info.get("currency", "EUR"),
+            "exchange": info.get("exchange") or info.get("fullExchangeName") or "",
+            "secteur": info.get("sector", ""),
+            "industrie": info.get("industry", ""),
+            "pays": info.get("country", ""),
+            "description": info.get("longBusinessSummary", ""),
+            "site": info.get("website", ""),
+            "cours": cours,
+            "variation_jour": variation,
+            "cours_52w_haut": _safe_float(info.get("fiftyTwoWeekHigh")),
+            "cours_52w_bas": _safe_float(info.get("fiftyTwoWeekLow")),
+            "capitalisation": _safe_float(info.get("marketCap")),
+            "volume_moyen": _safe_float(info.get("averageVolume")),
+            "beta": _safe_float(info.get("beta")),
+            "pe_trailing": _safe_float(info.get("trailingPE")),
+            "pe_forward": _safe_float(info.get("forwardPE")),
+            "peg": _safe_float(info.get("pegRatio")),
+            "pb": _safe_float(info.get("priceToBook")),
+            "ps": _safe_float(info.get("priceToSalesTrailing12Months")),
+            "ev_ebitda": _safe_float(info.get("enterpriseToEbitda")),
+            "ev": _safe_float(info.get("enterpriseValue")),
+            "rendement_div": _safe_float(info.get("dividendYield")),
+            "taux_distribution": _safe_float(info.get("payoutRatio")),
+            "dividende_par_action": _safe_float(info.get("dividendRate")),
+            "marge_brute": _safe_float(info.get("grossMargins")),
+            "marge_operationnelle": _safe_float(info.get("operatingMargins")),
+            "marge_nette": _safe_float(info.get("profitMargins")),
+            "roe": _safe_float(info.get("returnOnEquity")),
+            "roa": _safe_float(info.get("returnOnAssets")),
+            "dette_capitaux": _safe_float(info.get("debtToEquity")),
+            "current_ratio": _safe_float(info.get("currentRatio")),
+            "quick_ratio": _safe_float(info.get("quickRatio")),
+            "croissance_ca": _safe_float(info.get("revenueGrowth")),
+            "croissance_benefices": _safe_float(info.get("earningsGrowth")),
+            "ca_ttm": _safe_float(info.get("totalRevenue")),
+            "ebitda": _safe_float(info.get("ebitda")),
+            "objectif_moyen": _safe_float(info.get("targetMeanPrice")),
+            "objectif_haut": _safe_float(info.get("targetHighPrice")),
+            "objectif_bas": _safe_float(info.get("targetLowPrice")),
+            "recommandation": reco_key,
+            "nb_analystes": nb_analystes,
+            "consensus": None,
+        }
+
+        with _cache_lock:
+            _cache[cache_key] = {"timestamp": now, "value": data}
+        return data
+
+    except Exception as e:
+        logger.warning("get_stock_fundamentals(%s): yfinance échoué (%s), fallback chart", ticker, e)
+
+    # ── Fallback v8/chart ────────────────────────────────────
+    try:
+        chart_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        r = _get_session().get(chart_url, params={"interval": "1d", "range": "1d", "includePrePost": "false"}, timeout=10)
+        if not r.ok:
+            r = _get_session().get(chart_url.replace("query1", "query2"), params={"interval": "1d", "range": "1d"}, timeout=10)
+        meta = (r.json().get("chart") or {}).get("result", [{}])[0].get("meta", {}) if r.ok else {}
+    except Exception:
+        meta = {}
+
+    if not meta.get("regularMarketPrice"):
+        return {}
+
+    prev = _safe_float(meta.get("chartPreviousClose") or meta.get("previousClose"))
+    cur  = _safe_float(meta.get("regularMarketPrice"))
+    var  = round((cur - prev) / prev, 4) if prev and cur else None
+
+    data = {
+        "ticker": ticker,
+        "nom": meta.get("longName") or meta.get("shortName") or ticker,
+        "nom_court": meta.get("shortName") or ticker,
+        "devise": meta.get("currency", "EUR"),
+        "exchange": meta.get("exchangeName", ""),
+        "secteur": "", "industrie": "", "pays": "", "description": "", "site": "",
+        "cours": cur, "variation_jour": var,
+        "cours_52w_haut": _safe_float(meta.get("fiftyTwoWeekHigh")),
+        "cours_52w_bas":  _safe_float(meta.get("fiftyTwoWeekLow")),
+        "capitalisation": None, "volume_moyen": None, "beta": None,
+        "pe_trailing": None, "pe_forward": None, "peg": None, "pb": None,
+        "ps": None, "ev_ebitda": None, "ev": None,
+        "rendement_div": None, "taux_distribution": None, "dividende_par_action": None,
+        "marge_brute": None, "marge_operationnelle": None, "marge_nette": None,
+        "roe": None, "roa": None, "dette_capitaux": None,
+        "current_ratio": None, "quick_ratio": None,
+        "croissance_ca": None, "croissance_benefices": None,
+        "ca_ttm": None, "ebitda": None,
+        "objectif_moyen": None, "objectif_haut": None, "objectif_bas": None,
+        "recommandation": "", "nb_analystes": 0, "consensus": None,
+        "source_limitee": True,
+    }
+    with _cache_lock:
+        _cache[cache_key] = {"timestamp": now, "value": data}
+    return data
+
     return nouveaux

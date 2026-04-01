@@ -3,11 +3,13 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import PlusBadge from '../components/PlusBadge'
 import SyncPage from './settings/SyncPage'
 import PricingPage from './settings/PricingPage'
 import FiscalPage from './settings/FiscalPage'
 import ExportPage from './settings/ExportPage'
 import ComptesEtrangersPage from './settings/ComptesEtrangersPage'
+import ConfidentialitePage from './settings/ConfidentialitePage'
 
 const BLUR_KEY = 'tomino_blur'
 const SYNC_AUTH_TOKEN_KEY = 'tomino_sync_auth_token'
@@ -103,12 +105,6 @@ const TIERS = [
     label: 'Éco',
     sub: 'Réponse courte, consommation minimale',
     minPlan: 'free',
-  },
-  {
-    value: 'tier1',
-    label: 'Standard',
-    sub: 'Bon équilibre profondeur / crédits',
-    minPlan: 'tier1',
   },
   {
     value: 'tomino_plus',
@@ -298,6 +294,7 @@ export default function Settings() {
   const isExportBackupPage = path === '/settings/export/backup'
   const isSyncPage = path === '/settings/sync'
   const isPricingPage = path === '/settings/pricing'
+  const isConfidentialitePage = path === '/settings/confidentialite'
   const isAnyExportSubPage = isExportPdfPage || isExportCsvMouvementsPage || isExportCsvDividendesPage || isExportCsvFiscalPage || isExportBackupPage
   const [form, setForm] = useState(DEFAULT_PROFILE)
   const [comptes, setComptes] = useState([])
@@ -389,8 +386,10 @@ export default function Settings() {
   const [syncActionSaving, setSyncActionSaving] = useState(false)
   const [syncEntryLoading, setSyncEntryLoading] = useState(false)
   const fileInputRef = useRef(null)
+  const autoSaveTimerRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [autoSaveStatus, setAutoSaveStatus] = useState('')
   const [error, setError] = useState('')
   const [toastMsg, setToastMsg] = useState('')
   const [confirmCompte, setConfirmCompte] = useState(null)
@@ -465,19 +464,44 @@ export default function Settings() {
   }
 
   function setField(name, value) {
-    setForm((current) => ({ ...current, [name]: value }))
+    const next = { ...form, [name]: value }
+    setForm(next)
+    saveProfileAuto(next)
   }
 
   function toggleExclusion(value) {
-    setForm((current) => {
-      const has = current.secteurs_exclus.includes(value)
-      return {
-        ...current,
-        secteurs_exclus: has
-          ? current.secteurs_exclus.filter((v) => v !== value)
-          : [...current.secteurs_exclus, value],
-      }
-    })
+    const has = form.secteurs_exclus.includes(value)
+    const next = {
+      ...form,
+      secteurs_exclus: has
+        ? form.secteurs_exclus.filter((v) => v !== value)
+        : [...form.secteurs_exclus, value],
+    }
+    setForm(next)
+    saveProfileAuto(next)
+  }
+
+  async function saveProfileAuto(data) {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    setAutoSaveStatus('saving')
+    try {
+      await api.post('/profil', {
+        horizon: data.horizon,
+        risque: data.risque,
+        objectif: data.objectif,
+        strategie: data.strategie,
+        style_ia: data.style_ia,
+        ton_ia: data.ton_ia,
+        secteurs_exclus: data.secteurs_exclus,
+        benchmark: data.benchmark,
+        tier: data.tier,
+      })
+      setAutoSaveStatus('saved')
+    } catch {
+      setAutoSaveStatus('error')
+    } finally {
+      autoSaveTimerRef.current = setTimeout(() => setAutoSaveStatus(''), 2000)
+    }
   }
 
   async function saveProfile() {
@@ -1434,23 +1458,14 @@ export default function Settings() {
           </div>
 
           <div className="settings-group fade-up">
-            <div className="settings-group-label">Confidentialité</div>
-            <div className="settings-row" onClick={toggleBlur}>
+            <div className="settings-group-label">Confidentialité & sécurité</div>
+            <button type="button" className="settings-row" onClick={() => navigate('/settings/confidentialite')} style={{ width: '100%', border: 0, textAlign: 'left', background: 'transparent' }}>
               <div className="settings-row-info">
-                <div className="settings-row-title">Flouter les montants</div>
-                <div className="settings-row-sub">Masque les sommes affichées dans l'application. Survolez pour révéler.</div>
+                <div className="settings-row-title">Confidentialité & sécurité</div>
+                <div className="settings-row-sub">Données locales, IA, services tiers, chiffrement et flou des montants.</div>
               </div>
-              <button
-                className={`toggle-switch${blurAmounts ? ' on' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  toggleBlur()
-                }}
-                type="button"
-                aria-pressed={blurAmounts}
-                aria-label="Activer ou désactiver le flou sur les montants"
-              />
-            </div>
+              <span style={{ color: 'var(--text-3)', fontSize: '1.1rem' }}>›</span>
+            </button>
           </div>
 
           <div className="settings-group fade-up">
@@ -1513,63 +1528,43 @@ export default function Settings() {
           onBack={() => navigate('/settings')}
         />
 
-        <section className="card fade-up" style={{ maxWidth: 980 }}>
-          <div className="card-label" style={{ marginBottom: 12 }}>Profil investisseur</div>
-
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Horizon d'investissement</label>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {HORIZONS.map((item) => (
-                <ChoiceButton key={item.value} active={form.horizon === item.value} onClick={() => setField('horizon', item.value)}>{item.label}</ChoiceButton>
-              ))}
+        <div style={{ display: 'grid', gap: 28, maxWidth: 980 }}>
+          {[
+            { key: 'horizon', label: "Horizon d'investissement", items: HORIZONS },
+            { key: 'risque', label: 'Tolérance au risque', items: RISQUES },
+            { key: 'objectif', label: 'Objectif principal', items: OBJECTIFS },
+            { key: 'strategie', label: "Stratégie d'investissement", items: STRATEGIES },
+          ].map(({ key, label, items }) => (
+            <div key={key}>
+              <div className="settings-group-label" style={{ marginBottom: 10 }}>{label}</div>
+              <div style={{ border: '1px solid var(--line)', borderRadius: 16, overflow: 'hidden', padding: '14px 18px', display: 'grid', gap: 8 }}>
+                {items.map((item) => (
+                  <ChoiceButton key={item.value} active={form[key] === item.value} onClick={() => setField(key, item.value)}>
+                    {item.label}
+                  </ChoiceButton>
+                ))}
+              </div>
             </div>
-          </div>
+          ))}
 
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Tolérance au risque</label>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {RISQUES.map((item) => (
-                <ChoiceButton key={item.value} active={form.risque === item.value} onClick={() => setField('risque', item.value)}>{item.label}</ChoiceButton>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Objectif principal</label>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {OBJECTIFS.map((item) => (
-                <ChoiceButton key={item.value} active={form.objectif === item.value} onClick={() => setField('objectif', item.value)}>{item.label}</ChoiceButton>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Stratégie d'investissement</label>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {STRATEGIES.map((item) => (
-                <ChoiceButton key={item.value} active={form.strategie === item.value} onClick={() => setField('strategie', item.value)}>{item.label}</ChoiceButton>
-              ))}
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Exclusions ISR</label>
-            <div style={{ display: 'grid', gap: 8 }}>
+          <div>
+            <div className="settings-group-label" style={{ marginBottom: 10 }}>Exclusions ISR</div>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 16, overflow: 'hidden', padding: '14px 18px', display: 'grid', gap: 8 }}>
               {EXCLUSIONS.map((item) => (
                 <ChoiceButton key={item.value} active={form.secteurs_exclus.includes(item.value)} onClick={() => toggleExclusion(item.value)}>
-                  {form.secteurs_exclus.includes(item.value) ? '☑ ' : '☐ '}
-                  {item.label}
+                  {form.secteurs_exclus.includes(item.value) ? '☑ ' : '☐ '}{item.label}
                 </ChoiceButton>
               ))}
             </div>
           </div>
-        </section>
+        </div>
       </>
     )
   }
 
   function renderIaPage() {
-    const isFree = form.tier === 'free'
+    const tierLevels = { free: 0, tier1: 1, tomino_plus: 1, tier2: 1 }
+    const userLevel = tierLevels[form.tier] ?? 0
 
     return (
       <>
@@ -1579,28 +1574,28 @@ export default function Settings() {
           onBack={() => navigate('/settings')}
         />
 
-        <section className="card fade-up" style={{ maxWidth: 980 }}>
-          <div className="card-label" style={{ marginBottom: 12 }}>Préférences IA</div>
-
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Benchmark de référence</label>
-            <div style={{ display: 'grid', gap: 8 }}>
+        <div style={{ display: 'grid', gap: 28, maxWidth: 980 }}>
+          <div>
+            <div className="settings-group-label" style={{ marginBottom: 10 }}>Benchmark de référence</div>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 16, overflow: 'hidden', padding: '14px 18px', display: 'grid', gap: 8 }}>
               {BENCHMARKS.map((item) => (
-                <ChoiceButton key={item.value} active={form.benchmark === item.value} onClick={() => setField('benchmark', item.value)}>{item.label}</ChoiceButton>
+                <ChoiceButton key={item.value} active={form.benchmark === item.value} onClick={() => setField('benchmark', item.value)}>
+                  {item.label}
+                </ChoiceButton>
               ))}
             </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label" style={{ marginBottom: 4 }}>Niveau d'analyse</label>
-            <p style={{ fontSize: '.78rem', color: 'var(--text-3)', marginBottom: 10, fontFamily: 'var(--mono)' }}>
-              Détermine la profondeur des analyses Grok et la consommation de crédits.
-            </p>
-            <div style={{ display: 'grid', gap: 8 }}>
-              {TIERS.map((item) => {
-                const tierOrder = { free: 0, tier1: 1, tomino_plus: 2, tier2: 2 }
-                const locked = tierOrder[item.value] > tierOrder[form.tier]
+          <div>
+            <div className="settings-group-label" style={{ marginBottom: 10 }}>Niveau d'analyse</div>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 16, overflow: 'hidden' }}>
+              <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', fontSize: '.78rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+                Détermine la profondeur des analyses Grok et la consommation de crédits.
+              </div>
+              {TIERS.map((item, idx) => {
+                const locked = (tierLevels[item.value] ?? 0) > userLevel
                 const active = form.tier === item.value
+                const isLast = idx === TIERS.length - 1
                 return (
                   <button
                     key={item.value}
@@ -1608,49 +1603,48 @@ export default function Settings() {
                     disabled={locked}
                     onClick={() => !locked && setField('tier', item.value)}
                     style={{
-                      border: active
-                        ? '1px solid rgba(201,168,76,.6)'
-                        : locked
-                        ? '1px solid var(--line)'
-                        : '1px solid var(--line)',
-                      background: active
-                        ? 'rgba(201,168,76,.10)'
-                        : locked
-                        ? 'rgba(255,255,255,.01)'
-                        : 'rgba(255,255,255,.02)',
-                      color: locked ? 'var(--text-3)' : active ? 'var(--text)' : 'var(--text-2)',
-                      borderRadius: 12,
-                      padding: '11px 13px',
-                      textAlign: 'left',
-                      cursor: locked ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       gap: 8,
-                      transition: 'all .14s ease',
-                      opacity: locked ? 0.5 : 1,
+                      width: '100%',
+                      padding: '14px 18px',
+                      borderBottom: isLast ? 'none' : '1px solid var(--line)',
+                      border: 'none',
+                      background: active ? 'rgba(201,168,76,.08)' : 'transparent',
+                      color: locked ? 'var(--text-3)' : 'var(--text)',
+                      textAlign: 'left',
+                      cursor: locked ? 'not-allowed' : 'pointer',
+                      opacity: locked ? 0.55 : 1,
+                      transition: 'background .15s',
                     }}
                   >
                     <div>
                       <div style={{ fontSize: '.88rem', fontWeight: 600 }}>{item.label}</div>
                       <div style={{ fontSize: '.76rem', fontFamily: 'var(--mono)', color: locked ? 'var(--text-3)' : 'var(--text-2)', marginTop: 2 }}>{item.sub}</div>
                     </div>
-                    {locked && (
-                      <span style={{ fontSize: '.72rem', fontFamily: 'var(--mono)', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
-                        🔒 Tomino +
-                      </span>
-                    )}
+                    {locked ? <PlusBadge /> : active ? <span style={{ color: 'var(--green)', fontSize: '.85rem', fontWeight: 700 }}>✓</span> : null}
                   </button>
                 )
               })}
             </div>
-            {isFree && (
+            {userLevel === 0 && (
               <p style={{ marginTop: 8, fontSize: '.76rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
-                Le niveau Standard et Approfondi seront disponibles avec un abonnement Tomino +.
+                Le niveau Approfondi sera disponible avec un abonnement Tomino+.
               </p>
             )}
           </div>
-        </section>
+
+          <div>
+            <div className="settings-group-label" style={{ marginBottom: 10 }}>Modèle utilisé</div>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 16, overflow: 'hidden' }}>
+              <div style={{ padding: '14px 18px' }}>
+                <div style={{ fontWeight: 700, fontSize: '.88rem', color: 'var(--text)', marginBottom: 4 }}>Moteur IA</div>
+                <div style={{ fontSize: '.83rem', color: 'var(--text-2)', fontFamily: 'var(--mono)' }}>grok-4-1-fast-reasoning — xAI</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </>
     )
   }
@@ -3064,7 +3058,7 @@ export default function Settings() {
 
       {!loading && (
         <div style={{ display: 'grid', gap: 16 }}>
-          {!isProfilePage && !isIaPage && !isComptesPage && !isFiscalPage && !isExportPage && !isAnyExportSubPage && !isSyncPage && !isPricingPage && renderRoot()}
+          {!isProfilePage && !isIaPage && !isComptesPage && !isFiscalPage && !isExportPage && !isAnyExportSubPage && !isSyncPage && !isPricingPage && !isConfidentialitePage && renderRoot()}
           {isProfilePage && renderProfilePage()}
           {isIaPage && renderIaPage()}
           {isComptesPage && <ComptesEtrangersPage render={renderComptesPage} />}
@@ -3118,12 +3112,21 @@ export default function Settings() {
               }}
             />
           )}
+          {isConfidentialitePage && (
+            <ConfidentialitePage
+              ctx={{ BackHeader, navigate, blurAmounts, toggleBlur }}
+            />
+          )}
 
-          {(isProfilePage || isIaPage) && (
-            <div className="fade-up" style={{ maxWidth: 980, display: 'flex', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-primary" disabled={saving} onClick={saveProfile}>
-                {saving ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
+          {(isProfilePage || isIaPage) && autoSaveStatus && (
+            <div style={{ maxWidth: 980, display: 'flex', justifyContent: 'flex-end' }}>
+              <span style={{
+                fontSize: '.78rem',
+                fontFamily: 'var(--mono)',
+                color: autoSaveStatus === 'saved' ? 'var(--green)' : autoSaveStatus === 'error' ? 'var(--red)' : 'var(--text-3)',
+              }}>
+                {autoSaveStatus === 'saving' ? 'Enregistrement...' : autoSaveStatus === 'saved' ? 'Enregistré' : 'Erreur'}
+              </span>
             </div>
           )}
 

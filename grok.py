@@ -190,11 +190,13 @@ def _construire_contexte(resume: dict, actifs: list, profil: dict | None = None)
         for a in actifs:
             cours = f"{a.get('cours_actuel', '?')} {a.get('devise', '€')}" if a.get("cours_ok") else "cours indisponible"
             pv    = f"{a.get('pv_euros', 0):+.2f} € ({a.get('pv_pct', 0):+.2f}%)" if a.get("cours_ok") else "—"
+            tri   = a.get("tri")
+            tri_txt = f" | TRI:{tri:.1f}%" if isinstance(tri, (int, float)) else ""
             lignes.append(
                 f"  [{a.get('enveloppe')}] {a.get('nom')} ({a.get('ticker', '—')}) | "
                 f"type:{a.get('type')} cat:{a.get('categorie')} | "
                 f"qté:{a.get('quantite')} PRU:{a.get('pru'):.2f}€ | "
-                f"cours:{cours} | PV:{pv}"
+                f"cours:{cours} | PV:{pv}{tri_txt}"
             )
 
     return "\n".join(lignes)
@@ -550,3 +552,130 @@ def chat_stream(historique_messages: list, resume: dict, tier: str = "free"):
         yield f"[ERREUR] Impossible de joindre l'API xAI : {e}"
     except Exception as e:
         yield f"[ERREUR] Flux inattendu de l'API : {e}"
+
+
+def stock_chat_stream(historique_messages: list, stock_data: dict, tier: str = "free"):
+    """
+    Chat en streaming contextualisé sur une action.
+    stock_data : dict retourné par prices.get_stock_fundamentals()
+    """
+    api_key = os.getenv("XAI_API_KEY", "").strip()
+    if not api_key:
+        yield "[ERREUR] Clé API XAI_API_KEY manquante."
+        return
+
+    tier = _tier_valide(tier)
+    max_tokens = _CHAT_MAX_TOKENS_PAR_TIER[tier]
+    nb_messages = _CHAT_HISTORIQUE_PAR_TIER[tier]
+    historique_messages = historique_messages[-nb_messages:]
+
+    profil = db.get_profil()
+    ton = profil.get("ton_ia", "informel")
+    style = profil.get("style_ia", "detaille")
+
+    nom = stock_data.get("nom") or stock_data.get("ticker", "cette action")
+    ticker = stock_data.get("ticker", "")
+
+    def pct(v):
+        return f"{v*100:.1f}%" if v is not None else "N/D"
+    def val(v, suffix=""):
+        return f"{v}{suffix}" if v is not None else "N/D"
+    def eur_m(v):
+        if v is None: return "N/D"
+        if v >= 1e12: return f"{v/1e12:.1f} T"
+        if v >= 1e9:  return f"{v/1e9:.1f} Md"
+        if v >= 1e6:  return f"{v/1e6:.0f} M"
+        return str(v)
+
+    context = f"""Tu es un assistant d'analyse boursière intégré à Tomino, application de gestion de patrimoine.
+Tu analyses l'action suivante et tu réponds aux questions de l'utilisateur à son sujet.
+Ton : {"décontracté mais précis" if ton == "informel" else "professionnel et rigoureux"}.
+Style : {"détaillé avec explications" if style == "detaille" else "synthétique"}.
+
+=== ACTION ANALYSÉE : {nom} ({ticker}) ===
+Secteur : {stock_data.get("secteur") or "N/D"} | Industrie : {stock_data.get("industrie") or "N/D"} | Pays : {stock_data.get("pays") or "N/D"}
+Cours actuel : {val(stock_data.get("cours"))} {stock_data.get("devise","")} | Variation jour : {pct(stock_data.get("variation_jour"))}
+52 semaines — Haut : {val(stock_data.get("cours_52w_haut"))} | Bas : {val(stock_data.get("cours_52w_bas"))}
+Capitalisation : {eur_m(stock_data.get("capitalisation"))} | Bêta : {val(stock_data.get("beta"))}
+
+VALORISATION
+P/E trailing : {val(stock_data.get("pe_trailing"))} | P/E forward : {val(stock_data.get("pe_forward"))}
+P/B : {val(stock_data.get("pb"))} | P/S : {val(stock_data.get("ps"))} | EV/EBITDA : {val(stock_data.get("ev_ebitda"))} | PEG : {val(stock_data.get("peg"))}
+
+SANTÉ FINANCIÈRE
+Marge nette : {pct(stock_data.get("marge_nette"))} | Marge opérationnelle : {pct(stock_data.get("marge_operationnelle"))}
+ROE : {pct(stock_data.get("roe"))} | ROA : {pct(stock_data.get("roa"))}
+Dette/Capitaux : {val(stock_data.get("dette_capitaux"))} | Current ratio : {val(stock_data.get("current_ratio"))}
+
+CROISSANCE
+CA (YoY) : {pct(stock_data.get("croissance_ca"))} | Bénéfices (YoY) : {pct(stock_data.get("croissance_benefices"))}
+
+DIVIDENDE
+Rendement : {pct(stock_data.get("rendement_div"))} | Taux distribution : {pct(stock_data.get("taux_distribution"))}
+
+CONSENSUS ANALYSTES ({stock_data.get("nb_analystes", 0)} analystes)
+Recommandation : {stock_data.get("recommandation") or "N/D"}
+Objectif moyen : {val(stock_data.get("objectif_moyen"))} | Haut : {val(stock_data.get("objectif_haut"))} | Bas : {val(stock_data.get("objectif_bas"))}
+
+PROFIL INVESTISSEUR
+Horizon : {profil.get("horizon","N/D")} | Risque : {profil.get("risque","N/D")} | Objectif : {profil.get("objectif","N/D")}
+
+Réponds aux questions sur cette action. Si l'utilisateur demande une opinion d'investissement, rappelle toujours que tu n'es pas conseiller financier et que c'est sa décision finale.
+"""
+
+    messages = [{"role": "system", "content": context}]
+    for m in historique_messages:
+        if not isinstance(m, dict):
+            continue
+        role = (m.get("role") or "").strip()
+        content = (m.get("content") or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        messages.append({"role": role, "content": content})
+
+    if len(messages) == 1:
+        yield "[ERREUR] Aucun message à traiter."
+        return
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    try:
+        for continuation_idx in range(_MAX_CONTINUATIONS + 1):
+            payload = {"model": _MODEL, "messages": messages, "max_tokens": max_tokens, "stream": True}
+            r = requests.post(_API_URL, json=payload, headers=headers, stream=True, timeout=60)
+            r.raise_for_status()
+            chunk = ""
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                text = line.decode("utf-8") if isinstance(line, bytes) else line
+                if text.startswith("data:"):
+                    raw = text[5:].strip()
+                    if raw == "[DONE]":
+                        return
+                    try:
+                        delta = json.loads(raw)["choices"][0]["delta"].get("content", "")
+                        chunk += delta
+                        yield delta
+                    except Exception:
+                        continue
+            finish = None
+            try:
+                finish = json.loads(raw)["choices"][0].get("finish_reason")
+            except Exception:
+                pass
+            if finish != "length":
+                return
+            if continuation_idx >= _MAX_CONTINUATIONS:
+                yield "\n\n[Réponse tronquée]"
+                break
+            messages.append({"role": "assistant", "content": chunk})
+            messages.append({"role": "user", "content": "Continue."})
+    except requests.exceptions.HTTPError as exc:
+        r_ref = exc.response
+        code = r_ref.status_code if r_ref is not None else "?"
+        yield f"[ERREUR] HTTP {code} depuis l'API xAI."
+    except requests.exceptions.RequestException as e:
+        yield f"[ERREUR] Impossible de joindre l'API xAI : {e}"
+    except Exception as e:
+        yield f"[ERREUR] {e}"

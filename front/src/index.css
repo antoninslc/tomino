@@ -8,6 +8,7 @@
 	--bg-soft: #151a21;
 	--bg-soft-2: #1b2129;
 	--line: rgba(255, 255, 255, 0.07);
+	--border: rgba(255, 255, 255, 0.07);
 	--line-strong: rgba(255, 255, 255, 0.13);
 	--text: #f5f7fb;
 	--text-2: #adb7c7;
@@ -24,6 +25,7 @@
 	--sans: 'Manrope', system-ui, sans-serif;
 	--sidebar-w: 232px;
 	--top-h: 72px;
+	--demo-banner-h: 0px;
 	--radius-lg: 24px;
 	--radius-md: 18px;
 	--radius-sm: 14px;
@@ -31,11 +33,32 @@
 
 * {
 	box-sizing: border-box;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+*::-webkit-scrollbar {
+	width: 4px;
+	height: 4px;
+}
+
+*::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+	background: rgba(255, 255, 255, 0.1);
+	border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+	background: rgba(255, 255, 255, 0.2);
 }
 
 html {
 	font-size: 15px;
 	background: var(--bg);
+	overscroll-behavior: none;
 }
 
 body {
@@ -48,6 +71,7 @@ body {
 	-webkit-font-smoothing: antialiased;
 	user-select: none;
 	-webkit-user-select: none;
+	overscroll-behavior: none;
 	background-image:
 		radial-gradient(circle at top left, rgba(24, 195, 126, 0.16), transparent 26%),
 		radial-gradient(circle at top right, rgba(110, 231, 255, 0.12), transparent 24%),
@@ -83,7 +107,7 @@ a {
 	display: flex;
 	flex-direction: column;
 	position: fixed;
-	top: 0;
+	top: var(--demo-banner-h);
 	left: 0;
 	bottom: 0;
 	z-index: 100;
@@ -601,7 +625,15 @@ a {
 }
 
 .btn-analyse .btn-icon {
-	font-size: 1.1rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+}
+
+.hist-item.active {
+	background: rgba(255,255,255,.04);
+	border-radius: 6px;
 }
 
 .btn-analyse.perf {
@@ -743,6 +775,20 @@ a {
 	100% { background-position: -120% 0; }
 }
 
+@keyframes blink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0; }
+}
+
+.chat-streaming::after {
+	content: '▍';
+	display: inline-block;
+	margin-left: 2px;
+	color: var(--accent);
+	animation: blink .7s step-end infinite;
+	vertical-align: baseline;
+}
+
 .chat-ai p {
 	margin: .4em 0;
 }
@@ -786,6 +832,7 @@ a {
 	background: linear-gradient(180deg, rgba(22, 27, 33, 0.96), rgba(15, 18, 23, 0.96));
 	border: 1px solid var(--line);
 	border-radius: var(--radius-md);
+	min-width: 0;
 	padding: 22px;
 	box-shadow: var(--shadow);
 }
@@ -800,9 +847,10 @@ a {
 }
 
 .stat-value {
-	font-size: clamp(1.7rem, 3vw, 2.7rem);
+	font-size: clamp(1.15rem, 2.2vw, 2.7rem);
 	font-weight: 800;
 	color: var(--white);
+	overflow-wrap: break-word;
 	line-height: 0.95;
 	letter-spacing: -0.05em;
 }
@@ -1290,6 +1338,7 @@ input[type='number'].form-input {
 	-moz-appearance: textfield;
 	appearance: textfield;
 }
+
 
 input[type='number'].form-input::-webkit-outer-spin-button,
 input[type='number'].form-input::-webkit-inner-spin-button {

@@ -12,6 +12,7 @@ import Dividendes from './pages/Dividendes'
 import Alertes from './pages/Alertes'
 import Analyse from './pages/AnalyseIA'
 import Chat from './pages/Chat'
+import StockAnalyse from './pages/StockAnalyse'
 import ActifForm from './pages/ActifForm'
 import Settings from './pages/Settings'
 import Onboarding from './pages/Onboarding'
@@ -297,6 +298,7 @@ export default function App() {
             <Route path="/alertes" element={<Alertes />} />
             <Route path="/analyse" element={<Analyse />} />
             <Route path="/chat" element={<Chat />} />
+            <Route path="/analyse-action" element={<StockAnalyse />} />
             <Route path="/settings/*" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>

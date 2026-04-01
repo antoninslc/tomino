@@ -8,6 +8,55 @@ const LABELS = {
   risques: 'Risques'
 }
 
+const ICON_COLORS = {
+  performance: 'var(--green)',
+  arbitrage: '#c9a84c',
+  risques: 'var(--red)',
+}
+
+function IconPerformance() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 11L5.5 7.5L8 9.5L12 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M10.2 4.5H12V6.3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
+function IconArbitrage() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 5.5H12M9.5 3L12 5.5L9.5 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M13 9.5H3M5.5 7L3 9.5L5.5 12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
+function IconRisques() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M7.5 1.5L13 4V8C13 11 10.5 13 7.5 13.5C4.5 13 2 11 2 8V4L7.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
+      <path d="M7.5 5.5V9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+      <circle cx="7.5" cy="11" r="0.7" fill="currentColor"/>
+    </svg>
+  )
+}
+
+function renderIconAnalyse(type) {
+  if (type === 'arbitrage') return <IconArbitrage />
+  if (type === 'risques') return <IconRisques />
+  return <IconPerformance />
+}
+
+function IconClock() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }}>
+      <circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.2"/>
+      <path d="M6 3.5V6L7.5 7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+    </svg>
+  )
+}
+
 function sanitizeType(type) {
   return ['performance', 'arbitrage', 'risques'].includes(type) ? type : 'performance'
 }
@@ -135,7 +184,7 @@ export default function Analyse() {
     const cached = analysesDuJour[typeAnalyse]
     if (cached) {
       setResult(cached.reponse || '')
-      setResultMeta({ date: cached.date || '-', type: cached.type_analyse || typeAnalyse })
+      setResultMeta({ id: cached.id, date: cached.date || '-', type: cached.type_analyse || typeAnalyse })
     }
   }, [typeAnalyse, analysesDuJour])
 
@@ -152,6 +201,7 @@ export default function Analyse() {
         if (analyses.length) {
           setResult(analyses[0].reponse || '')
           setResultMeta({
+            id: analyses[0].id,
             date: analyses[0].date || '-',
             type: analyses[0].type_analyse || 'performance'
           })
@@ -169,7 +219,6 @@ export default function Analyse() {
       return
     }
 
-    // Vérifie si une analyse de ce type a déjà été faite aujourd'hui (même comportement que l'ancien TODAY_CACHE)
     const today = new Date().toISOString().slice(0, 10)
     const cached = history.find(
       (a) => a.type_analyse === nextType && String(a.date || '').startsWith(today)
@@ -185,11 +234,17 @@ export default function Analyse() {
     try {
       const data = await api.post('/grok/analyser', { type_analyse: nextType })
       setResult(data?.reponse || '')
-      setResultMeta({ date: data?.date || '-', type: data?.type || nextType })
       setTypeAnalyse(nextType)
 
       const hist = await api.get('/grok/historique')
-      setHistory(Array.isArray(hist?.analyses) ? hist.analyses : [])
+      const analyses = Array.isArray(hist?.analyses) ? hist.analyses : []
+      setHistory(analyses)
+      setResultMeta({
+        id: analyses[0]?.id,
+        date: data?.date || analyses[0]?.date || '-',
+        type: data?.type || nextType
+      })
+
       const quotaData = await api.get('/ia/quota')
       setQuota(quotaData)
     } catch (e) {
@@ -208,12 +263,14 @@ export default function Analyse() {
   function pickHistory(item) {
     setResult(item?.reponse || '')
     setResultMeta({
+      id: item?.id,
       date: item?.date || '-',
       type: item?.type_analyse || 'performance'
     })
   }
 
   const dejaFaiteSelected = Boolean(analysesDuJour[typeAnalyse])
+  const activeType = sanitizeType(resultMeta?.type || 'performance')
 
   return (
     <section>
@@ -235,9 +292,12 @@ export default function Analyse() {
         <div className="card" style={{ minHeight: 320 }}>
           {result ? (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <span className={`type-badge ${sanitizeType(resultMeta?.type || 'performance')}`}>
-                  {resultMeta?.type || 'performance'}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <span style={{ color: ICON_COLORS[activeType], display: 'flex', alignItems: 'center' }}>
+                  {renderIconAnalyse(activeType)}
+                </span>
+                <span className={`type-badge ${activeType}`}>
+                  {LABELS[activeType]}
                 </span>
                 <span style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)' }}>{resultMeta?.date || '-'}</span>
               </div>
@@ -269,9 +329,9 @@ export default function Analyse() {
             <div className="card-label">Lancer une analyse</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
               {[
-                { type: 'performance', icon: '📈', title: 'Performance', sub: 'Analyse des gains et pertes' },
-                { type: 'arbitrage', icon: '⚖️', title: 'Arbitrage', sub: 'Reequilibrages suggeres' },
-                { type: 'risques', icon: '🛡️', title: 'Risques', sub: 'Concentration & vulnerabilites' }
+                { type: 'performance', title: 'Performance', sub: 'Analyse des gains et pertes' },
+                { type: 'arbitrage', title: 'Arbitrage', sub: 'Reequilibrages suggeres' },
+                { type: 'risques', title: 'Risques', sub: 'Concentration & vulnerabilites' }
               ].map((item) => {
                 const dejaFaite = Boolean(analysesDuJour[item.type])
                 return (
@@ -282,18 +342,29 @@ export default function Analyse() {
                     disabled={loading}
                     className={`btn-analyse ${getTone(item.type)}${typeAnalyse === item.type ? ' selected' : ''}`}
                   >
-                    <span className="btn-icon">{item.icon}</span>
+                    <span className="btn-icon">{renderIconAnalyse(item.type)}</span>
                     <div>
                       <div className="btn-label">{item.title}</div>
                       <div className="btn-sub">{item.sub}</div>
                     </div>
                     {dejaFaite && (
-                      <span className="btn-done-today" title="Analyse déjà faite aujourd'hui">✓</span>
+                      <span className="btn-done-today" title="Analyse déjà faite aujourd'hui">
+                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                          <path d="M2 5.5L4.5 8L9 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </span>
                     )}
                   </button>
                 )
               })}
             </div>
+
+            {quota?.max_analyse_calls != null && (
+              <div style={{ fontSize: '.68rem', fontFamily: 'var(--mono)', color: 'var(--text-3)', textAlign: 'right', marginTop: 8 }}>
+                {quota.analyse_calls ?? 0} / {quota.max_analyse_calls} analyses cette semaine
+              </div>
+            )}
+
             <button
               type="button"
               className="btn-rapport"
@@ -306,23 +377,23 @@ export default function Analyse() {
                   Analyse en cours...
                 </>
               ) : quota?.blocked ? (
-                <>⏳ Disponible dans {weeklyCountdown || '...'}</>
+                <><IconClock />Disponible dans {weeklyCountdown || '...'}</>
               ) : dejaFaiteSelected ? (
-                <>⏳ Disponible dans {countdown}</>
+                <><IconClock />Disponible dans {countdown}</>
               ) : (
                 <>Obtenir un rapport →</>
               )}
             </button>
           </div>
 
-          {history.length > 1 && (
+          {history.length > 0 && (
             <div className="card">
               <div className="card-label">Historique</div>
               <div style={{ marginTop: 8 }}>
-                {[...history].reverse().slice(1).map((item) => (
+                {history.map((item) => (
                   <div
                     key={item.id}
-                    className="hist-item"
+                    className={`hist-item${item.id === resultMeta?.id ? ' active' : ''}`}
                     role="button"
                     tabIndex={0}
                     onClick={() => pickHistory(item)}
@@ -335,7 +406,7 @@ export default function Analyse() {
                   >
                     <div className="hist-meta">
                       <span className={`type-badge ${sanitizeType(item.type_analyse)}`}>
-                        {item.type_analyse}
+                        {LABELS[sanitizeType(item.type_analyse)]}
                       </span>
                       <span className="hist-date">{item.date}</span>
                     </div>

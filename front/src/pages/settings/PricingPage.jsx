@@ -24,13 +24,15 @@ export default function PricingPage({ ctx }) {
         onBack={() => navigate('/settings')}
       />
 
-      <section className="card fade-up" style={{ maxWidth: 1060, background: 'linear-gradient(180deg, rgba(10,16,24,.95), rgba(10,13,18,.95))', border: '1px solid rgba(77,124,255,.25)' }}>
-        <div style={{ display: 'grid', gap: 14, marginBottom: 18 }}>
-          <div className="card-label" style={{ color: '#b8d5ff' }}>Gratuit vs Tomino+</div>
-          <h2 style={{ margin: 0, fontFamily: 'var(--serif)', fontSize: '2rem', letterSpacing: '.01em' }}>Simple, transparent, sans surprise.</h2>
-          <p style={{ margin: 0, color: 'var(--text-2)', maxWidth: 760, lineHeight: 1.65 }}>
-            Gratuit couvre tout le suivi local. Tomino+ débloque l'expérience cloud et les outils premium pour piloter votre patrimoine sur plusieurs appareils.
-          </p>
+      <div style={{ maxWidth: 980, display: 'grid', gap: 28 }}>
+        <div>
+          <div className="settings-group-label" style={{ marginBottom: 10 }}>Gratuit vs Tomino+</div>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 16, overflow: 'hidden', padding: '18px 20px' }}>
+            <h2 style={{ margin: '0 0 10px', fontFamily: 'var(--serif)', fontSize: '1.8rem', letterSpacing: '.01em' }}>Simple, transparent, sans surprise.</h2>
+            <p style={{ margin: 0, color: 'var(--text-2)', maxWidth: 760, lineHeight: 1.65 }}>
+              Gratuit couvre tout le suivi local. Tomino+ débloque l'expérience cloud et les outils premium pour piloter votre patrimoine sur plusieurs appareils.
+            </p>
+          </div>
         </div>
 
         <div className="g2" style={{ alignItems: 'stretch' }}>
@@ -67,7 +69,7 @@ export default function PricingPage({ ctx }) {
           </article>
         </div>
 
-        <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-ghost" onClick={() => navigate('/settings/sync')}>
             Espace sync cloud
           </button>
@@ -90,7 +92,7 @@ export default function PricingPage({ ctx }) {
             </button>
           )}
         </div>
-      </section>
+      </div>
     </>
   )
 }
