@@ -790,13 +790,48 @@ def get_stock_fundamentals_av(ticker: str, av_key: str) -> dict:
         "consensus":           consensus,
     }
 
+import re as _re
+
+_PRIMARY_EXCHANGES = {"NMS", "NGM", "NCM", "NYQ", "AMX", "PA", "L", "AS", "DE", "MI", "SW", "VX", "MC", "BR", "CO", "ST", "HE", "OL", "LS", "TYO", "HKG", "SHH", "SHZ"}
+_REGIONAL_EXCHANGES = {"HM", "MU", "F", "BE", "DU", "SG", "HAN", "VI", "MX", "BA", "PCX"}
+_ISIN_TICKER = _re.compile(r'^[A-Z]{2}[A-Z0-9]{9,11}\.[A-Z]+$')
+_ALLOWED_TYPES = {"EQUITY", "ETF", "MUTUALFUND"}
+
+
+def _normalize_company_name(name: str) -> str:
+    n = name.lower().strip()
+    for suffix in (" se", " sa", " ag", " plc", " inc", " corp", " ltd", " llc", " nv", " bv", " ab", " asa", " oyj", " spa"):
+        if n.endswith(suffix):
+            n = n[:-len(suffix)].strip()
+    if n.endswith(" a"):
+        n = n[:-2].strip()
+    return n
+
+
+def _dedup_search(results: list, name_key: str = "nom", exchange_key: str = "exchange") -> list:
+    seen: dict = {}
+    out: list = []
+    for item in results:
+        key = _normalize_company_name(str(item.get(name_key) or ""))
+        if not key:
+            out.append(item)
+            continue
+        exc = str(item.get(exchange_key) or "")
+        if key not in seen:
+            seen[key] = len(out)
+            out.append(item)
+        elif exc in _PRIMARY_EXCHANGES and str(out[seen[key]].get(exchange_key) or "") in _REGIONAL_EXCHANGES:
+            out[seen[key]] = item
+    return out
+
+
 def search_tickers(query: str) -> list:
     """Autocomplete ticker via Yahoo Finance search."""
     if not query or len(query.strip()) < 1:
         return []
     try:
         url = "https://query1.finance.yahoo.com/v1/finance/search"
-        params = {"q": query.strip(), "quotesCount": 8, "newsCount": 0, "enableFuzzyQuery": False}
+        params = {"q": query.strip(), "quotesCount": 15, "newsCount": 0, "enableFuzzyQuery": False}
         r = _get_session().get(url, params=params, timeout=6)
         r.raise_for_status()
         quotes = r.json().get("quotes", [])
@@ -805,13 +840,18 @@ def search_tickers(query: str) -> list:
             ticker = q.get("symbol", "")
             if not ticker:
                 continue
+            if _ISIN_TICKER.match(ticker):
+                continue
+            if q.get("quoteType", "").upper() not in _ALLOWED_TYPES:
+                continue
             results.append({
                 "ticker": ticker,
                 "nom": q.get("shortname") or q.get("longname") or ticker,
                 "type": q.get("quoteType", ""),
                 "exchange": q.get("exchange", ""),
             })
-        return results
+        results = _dedup_search(results)
+        return results[:8]
     except Exception as e:
         logger.warning("search_tickers(%s): %s", query, e)
         return []

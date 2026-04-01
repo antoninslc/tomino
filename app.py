@@ -32,7 +32,7 @@ FRONT_DIST = pathlib.Path(__file__).parent / "front" / "dist"
 SERVE_FRONTEND = FRONT_DIST.is_dir() and (FRONT_DIST / "index.html").exists()
 
 app = Flask(__name__)
-app.secret_key = "patrimoine-secret-2024"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-before-deploying")
 CORS(app, origins=[
     "http://localhost:5173", 
     "https://tauri.localhost", 
@@ -2986,7 +2986,7 @@ def api_actifs():
     liste = _enrichir_avec_tri(db.get_actifs(env))
     index_nom = {int(a.get("id")): a.get("nom", "") for a in liste if a.get("id") is not None}
     mouvements = []
-    for m in db.get_mouvements(enveloppe=env, limit=80):
+    for m in db.get_mouvements(enveloppe=env, limit=500):
         aid = int(m.get("actif_id")) if m.get("actif_id") is not None else None
         if aid not in index_nom:
             # Ignore les mouvements orphelins (actif supprimé) dans la vue portefeuille.
@@ -3085,6 +3085,64 @@ def api_actifs_create():
 
     _invalidate_resume_cache()
     return jsonify({"ok": True, "id": new_id})
+
+
+@app.route("/api/actifs/snapshot", methods=["POST"])
+def api_actifs_snapshot():
+    """Importe une position existante sans recalcul du PRU (onboarding)."""
+    payload = request.get_json(silent=True) or {}
+    enveloppe = _clean_env(payload.get("enveloppe", "PEA"))
+    data = _actif_payload(payload)
+    date_debut = str(payload.get("date_debut", "") or datetime.date.today().isoformat()).strip()
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_debut):
+        date_debut = datetime.date.today().isoformat()
+
+    qty = _to_float(data.get("quantite"), 0)
+    pru = _to_float(data.get("pru"), 0)
+
+    if not data["nom"]:
+        return jsonify({"ok": False, "erreur": "Champ 'nom' obligatoire."}), 400
+    if qty <= 0:
+        return jsonify({"ok": False, "erreur": "La quantite doit etre positive."}), 400
+    if pru <= 0:
+        return jsonify({"ok": False, "erreur": "Le PRU doit etre positif."}), 400
+
+    ticker = data.get("ticker", "")
+    existant = db.get_actif_by_ticker(ticker, enveloppe) if ticker else None
+    montant = round(qty * pru, 4)
+
+    if existant:
+        db.update_actif(existant["id"], {
+            "nom": existant.get("nom", data["nom"]),
+            "ticker": ticker,
+            "quantite": round(qty, 6),
+            "pru": round(pru, 4),
+            "type": existant.get("type", data["type"]),
+            "categorie": existant.get("categorie", data["categorie"]),
+            "date_achat": existant.get("date_achat") or date_debut,
+            "notes": existant.get("notes", data["notes"]),
+        })
+        actif_id = existant["id"]
+    else:
+        db.add_actif({"enveloppe": enveloppe, **data, "date_achat": date_debut})
+        actif_id = _last_inserted_id("actifs")
+
+    if actif_id:
+        db.add_mouvement({
+            "actif_id": actif_id,
+            "enveloppe": enveloppe,
+            "type_operation": "snapshot",
+            "date_operation": date_debut,
+            "quantite": round(qty, 6),
+            "prix_unitaire": round(pru, 6),
+            "frais": 0.0,
+            "montant_brut": montant,
+            "montant_net": montant,
+            "pv_realisee": None,
+        })
+
+    _invalidate_resume_cache()
+    return jsonify({"ok": True, "id": actif_id})
 
 
 @app.route("/api/actifs/<int:actif_id>", methods=["PUT"])
@@ -3315,7 +3373,7 @@ def api_mouvement_delete(mouvement_id):
     if not mouvement:
         return jsonify({"ok": False, "erreur": "Mouvement introuvable."}), 404
 
-    if mouvement.get("type_operation") != "achat":
+    if mouvement.get("type_operation") not in ("achat", "snapshot"):
         return jsonify({"ok": False, "erreur": "Seuls les achats peuvent etre supprimes individuellement."}), 400
 
     actif = db.get_actif(int(mouvement.get("actif_id"))) if mouvement.get("actif_id") is not None else None
@@ -4312,22 +4370,32 @@ def api_search():
             "q": q,
             "lang": "fr-FR",
             "region": "FR",
-            "quotesCount": 8,
+            "quotesCount": 15,
             "newsCount": 0,
             "listsCount": 0,
         }
         r = prices.SESSION.get(url, params=params, timeout=5)
         data = r.json()
         quotes = data.get("quotes") or []
-        results = []
+        raw = []
         for item in quotes:
-            if item.get("quoteType") in ("EQUITY", "ETF", "MUTUALFUND"):
-                results.append({
-                    "symbol": item.get("symbol", ""),
-                    "name": item.get("shortname") or item.get("longname") or item.get("symbol", ""),
-                    "exchange": item.get("exchDisp", ""),
-                    "type": item.get("quoteType", "").lower(),
-                })
+            ticker = item.get("symbol", "")
+            if not ticker:
+                continue
+            if prices._ISIN_TICKER.match(ticker):
+                continue
+            if item.get("quoteType", "").upper() not in ("EQUITY", "ETF", "MUTUALFUND"):
+                continue
+            exchDisp = item.get("exchDisp", "")
+            raw.append({
+                "symbol": ticker,
+                "name": item.get("shortname") or item.get("longname") or ticker,
+                "exchange": exchDisp,
+                "type": item.get("quoteType", "").lower(),
+                "_exc": item.get("exchange", ""),
+            })
+        deduped = prices._dedup_search(raw, name_key="name", exchange_key="_exc")
+        results = [{"symbol": x["symbol"], "name": x["name"], "exchange": x["exchange"], "type": x["type"]} for x in deduped[:8]]
         return jsonify(results)
     except Exception:
         return jsonify([])

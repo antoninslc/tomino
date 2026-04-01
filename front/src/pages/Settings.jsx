@@ -1496,6 +1496,19 @@ export default function Settings() {
   }
 
   function renderProfilePage() {
+    const Section = ({ label, children }) => (
+      <div style={{ marginBottom: 20, maxWidth: 980 }}>
+        <div className="settings-group-label">{label}</div>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
+          {children}
+        </div>
+      </div>
+    )
+    const Row = ({ children }) => (
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+        {children}
+      </div>
+    )
     return (
       <>
         <BackHeader
@@ -1504,47 +1517,48 @@ export default function Settings() {
           onBack={() => navigate('/settings')}
         />
 
-        <section className="card fade-up" style={{ maxWidth: 980 }}>
-          <div className="card-label" style={{ marginBottom: 12 }}>Profil investisseur</div>
-
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Horizon d'investissement</label>
+        <Section label="Horizon">
+          <Row>
             <div style={{ display: 'grid', gap: 8 }}>
               {HORIZONS.map((item) => (
                 <ChoiceButton key={item.value} active={form.horizon === item.value} onClick={() => setField('horizon', item.value)}>{item.label}</ChoiceButton>
               ))}
             </div>
-          </div>
+          </Row>
+        </Section>
 
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Tolérance au risque</label>
+        <Section label="Tolérance au risque">
+          <Row>
             <div style={{ display: 'grid', gap: 8 }}>
               {RISQUES.map((item) => (
                 <ChoiceButton key={item.value} active={form.risque === item.value} onClick={() => setField('risque', item.value)}>{item.label}</ChoiceButton>
               ))}
             </div>
-          </div>
+          </Row>
+        </Section>
 
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Objectif principal</label>
+        <Section label="Objectif">
+          <Row>
             <div style={{ display: 'grid', gap: 8 }}>
               {OBJECTIFS.map((item) => (
                 <ChoiceButton key={item.value} active={form.objectif === item.value} onClick={() => setField('objectif', item.value)}>{item.label}</ChoiceButton>
               ))}
             </div>
-          </div>
+          </Row>
+        </Section>
 
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Stratégie d'investissement</label>
+        <Section label="Stratégie">
+          <Row>
             <div style={{ display: 'grid', gap: 8 }}>
               {STRATEGIES.map((item) => (
                 <ChoiceButton key={item.value} active={form.strategie === item.value} onClick={() => setField('strategie', item.value)}>{item.label}</ChoiceButton>
               ))}
             </div>
-          </div>
+          </Row>
+        </Section>
 
-          <div className="form-group">
-            <label className="form-label">Exclusions ISR</label>
+        <Section label="Exclusions ISR">
+          <Row>
             <div style={{ display: 'grid', gap: 8 }}>
               {EXCLUSIONS.map((item) => (
                 <ChoiceButton key={item.value} active={form.secteurs_exclus.includes(item.value)} onClick={() => toggleExclusion(item.value)}>
@@ -1553,14 +1567,27 @@ export default function Settings() {
                 </ChoiceButton>
               ))}
             </div>
-          </div>
-        </section>
+          </Row>
+        </Section>
       </>
     )
   }
 
   function renderIaPage() {
     const isFree = form.tier === 'free'
+    const Section = ({ label, children }) => (
+      <div style={{ marginBottom: 20, maxWidth: 980 }}>
+        <div className="settings-group-label">{label}</div>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
+          {children}
+        </div>
+      </div>
+    )
+    const Row = ({ children }) => (
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+        {children}
+      </div>
+    )
 
     return (
       <>
@@ -1570,20 +1597,18 @@ export default function Settings() {
           onBack={() => navigate('/settings')}
         />
 
-        <section className="card fade-up" style={{ maxWidth: 980 }}>
-          <div className="card-label" style={{ marginBottom: 12 }}>Préférences IA</div>
-
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label className="form-label">Benchmark de référence</label>
+        <Section label="Benchmark">
+          <Row>
             <div style={{ display: 'grid', gap: 8 }}>
               {BENCHMARKS.map((item) => (
                 <ChoiceButton key={item.value} active={form.benchmark === item.value} onClick={() => setField('benchmark', item.value)}>{item.label}</ChoiceButton>
               ))}
             </div>
-          </div>
+          </Row>
+        </Section>
 
-          <div className="form-group">
-            <label className="form-label" style={{ marginBottom: 4 }}>Niveau d'analyse</label>
+        <Section label="Niveau d'analyse">
+          <Row>
             <p style={{ fontSize: '.78rem', color: 'var(--text-3)', marginBottom: 10, fontFamily: 'var(--mono)' }}>
               Détermine la profondeur des analyses Grok et la consommation de crédits.
             </p>
@@ -1599,27 +1624,13 @@ export default function Settings() {
                     disabled={locked}
                     onClick={() => !locked && setField('tier', item.value)}
                     style={{
-                      border: active
-                        ? '1px solid rgba(201,168,76,.6)'
-                        : locked
-                        ? '1px solid var(--line)'
-                        : '1px solid var(--line)',
-                      background: active
-                        ? 'rgba(201,168,76,.10)'
-                        : locked
-                        ? 'rgba(255,255,255,.01)'
-                        : 'rgba(255,255,255,.02)',
+                      border: active ? '1px solid rgba(201,168,76,.6)' : '1px solid var(--line)',
+                      background: active ? 'rgba(201,168,76,.10)' : locked ? 'rgba(255,255,255,.01)' : 'rgba(255,255,255,.02)',
                       color: locked ? 'var(--text-3)' : active ? 'var(--text)' : 'var(--text-2)',
-                      borderRadius: 12,
-                      padding: '11px 13px',
-                      textAlign: 'left',
+                      borderRadius: 12, padding: '11px 13px', textAlign: 'left',
                       cursor: locked ? 'not-allowed' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                      transition: 'all .14s ease',
-                      opacity: locked ? 0.5 : 1,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                      transition: 'all .14s ease', opacity: locked ? 0.5 : 1,
                     }}
                   >
                     <div>
@@ -1636,33 +1647,17 @@ export default function Settings() {
                 Le niveau Approfondi sera disponible avec un abonnement Tomino +.
               </p>
             )}
-          </div>
+          </Row>
+        </Section>
 
-          <div className="form-group" style={{ marginTop: 18 }}>
-            <label className="form-label">Modèle utilisé</label>
-            <p style={{ fontSize: '.78rem', color: 'var(--text-3)', marginBottom: 8, fontFamily: 'var(--mono)' }}>
-              Modèle d'IA utilisé pour les analyses et le chat. Configurable dans une future version.
-            </p>
-            <div style={{
-              padding: '10px 13px',
-              borderRadius: 10,
-              border: '1px solid var(--line)',
-              background: 'rgba(255,255,255,.02)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
-            }}>
-              <span style={{ fontSize: '.88rem', fontFamily: 'var(--mono)', color: 'var(--text-2)' }}>
-                grok-4-1-fast-reasoning
-              </span>
-              <span style={{ fontSize: '.72rem', fontFamily: 'var(--mono)', color: 'var(--text-3)' }}>
-                xAI
-              </span>
+        <Section label="Modèle utilisé">
+          <Row>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <span style={{ fontSize: '.88rem', fontFamily: 'var(--mono)', color: 'var(--text-2)' }}>grok-4-1-fast-reasoning</span>
+              <span style={{ fontSize: '.72rem', fontFamily: 'var(--mono)', color: 'var(--text-3)' }}>xAI</span>
             </div>
-          </div>
-        </section>
-
+          </Row>
+        </Section>
       </>
     )
   }

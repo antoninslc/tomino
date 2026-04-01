@@ -119,7 +119,15 @@ export default function Portefeuille() {
     date_operation: new Date().toISOString().slice(0, 10),
   })
   const [opSaving, setOpSaving] = useState(false)
+  const [opDeleting, setOpDeleting] = useState(false)
   const [movPage, setMovPage] = useState(1)
+  const [snapModal, setSnapModal] = useState({ open: false })
+  const [snapForm, setSnapForm] = useState({ nom: '', ticker: '', type: 'etf', categorie: 'coeur', quantite: '', pru: '', date_debut: new Date().toISOString().slice(0, 10) })
+  const [snapSaving, setSnapSaving] = useState(false)
+  const [snapSugg, setSnapSugg] = useState([])
+  const [snapShowSugg, setSnapShowSugg] = useState(false)
+  const [snapFocusedIdx, setSnapFocusedIdx] = useState(-1)
+  const [snapAdded, setSnapAdded] = useState([])
   const nameInputRef = useRef(null)
 
   useEffect(() => {
@@ -130,6 +138,15 @@ export default function Portefeuille() {
       document.body.style.overflow = prevOverflow
     }
   }, [opModal.open])
+
+  useEffect(() => {
+    if (!snapModal.open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prevOverflow
+    }
+  }, [snapModal.open])
 
   function setAddingQuery(open) {
     const next = new URLSearchParams(searchParams)
@@ -432,6 +449,82 @@ export default function Portefeuille() {
     }
   }
 
+  async function deleteOperation() {
+    if (!opModal.mouvementId || opDeleting) return
+    setOpDeleting(true)
+    setError('')
+    try {
+      await api.del(`/mouvements/${opModal.mouvementId}`)
+      await load()
+      closeOperationModal()
+    } catch (e2) {
+      setError(e2?.message || 'Suppression impossible')
+    } finally {
+      setOpDeleting(false)
+    }
+  }
+
+  function openSnapModal() {
+    setSnapModal({ open: true })
+    setSnapForm({ nom: '', ticker: '', type: 'etf', categorie: 'coeur', quantite: '', pru: '', date_debut: new Date().toISOString().slice(0, 10) })
+    setSnapAdded([])
+    setSnapSugg([])
+    setSnapShowSugg(false)
+  }
+
+  function closeSnapModal() {
+    setSnapModal({ open: false })
+    if (snapAdded.length > 0) load()
+  }
+
+  async function searchSnapTicker(q) {
+    const query = q.trim()
+    if (query.length < 2) { setSnapSugg([]); setSnapShowSugg(false); return }
+    try {
+      const data = await api.get(`/search?q=${encodeURIComponent(query)}`)
+      setSnapSugg(Array.isArray(data) ? data : [])
+      setSnapShowSugg(Array.isArray(data) && data.length > 0)
+      setSnapFocusedIdx(-1)
+    } catch {
+      setSnapSugg([])
+      setSnapShowSugg(false)
+    }
+  }
+
+  function pickSnapSuggestion(item) {
+    const inferredType = item.type === 'etf' || item.type === 'mutualfund' ? 'etf' : item.type === 'equity' ? 'action' : snapForm.type
+    setSnapForm((f) => ({ ...f, nom: item.name || f.nom, ticker: String(item.symbol || '').toUpperCase(), type: inferredType }))
+    setSnapSugg([])
+    setSnapShowSugg(false)
+  }
+
+  async function submitSnap(e) {
+    e.preventDefault()
+    if (snapSaving) return
+    setSnapSaving(true)
+    try {
+      const res = await api.post('/actifs/snapshot', {
+        enveloppe: env,
+        nom: snapForm.nom,
+        ticker: snapForm.ticker,
+        type: snapForm.type,
+        categorie: snapForm.categorie,
+        quantite: Number(snapForm.quantite || 0),
+        pru: Number(snapForm.pru || 0),
+        date_debut: snapForm.date_debut,
+      })
+      if (!res?.ok) throw new Error(res?.erreur || 'Erreur')
+      setSnapAdded((prev) => [...prev, { nom: snapForm.nom, ticker: snapForm.ticker, quantite: snapForm.quantite, pru: snapForm.pru }])
+      setSnapForm((f) => ({ nom: '', ticker: '', type: 'etf', categorie: 'coeur', quantite: '', pru: '', date_debut: f.date_debut }))
+      setSnapSugg([])
+      setSnapShowSugg(false)
+    } catch (e2) {
+      alert(e2?.message || "Erreur lors de l'import")
+    } finally {
+      setSnapSaving(false)
+    }
+  }
+
   return (
     <section>
       <section className="hero-strip fade-up">
@@ -629,12 +722,13 @@ export default function Portefeuille() {
           )}
 
           {!actifs.length && !adding && (
-            <FirstSteps env={env} onAdd={openInlineForm} navigate={navigate} />
+            <FirstSteps env={env} onAdd={openInlineForm} onSnap={openSnapModal} navigate={navigate} />
           )}
 
           {!!actifs.length && !adding && (
-            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-primary btn-sm" onClick={openInlineForm}>+ Nouvelle ligne</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={openSnapModal}>Importer positions existantes</button>
             </div>
           )}
 
@@ -773,7 +867,7 @@ export default function Portefeuille() {
                   </thead>
                   <tbody>
                     {mouvementsPage.map((m) => {
-                      const isEditableRow = env === 'PEA' && Number(m.actif_id || 0) > 0
+                      const isEditableRow = Number(m.actif_id || 0) > 0 && m.type_operation !== 'snapshot'
                       return (
                       <tr
                         key={m.id}
@@ -785,6 +879,8 @@ export default function Portefeuille() {
                         <td>
                           {m.type_operation === 'achat'
                             ? <span className="badge" style={{ borderColor: 'rgba(74,158,106,.55)', color: '#9ce6b7' }}>Achat</span>
+                            : m.type_operation === 'snapshot'
+                            ? <span className="badge" style={{ borderColor: 'rgba(100,140,200,.45)', color: '#aac4ef' }}>Position initiale</span>
                             : <span className="badge" style={{ borderColor: 'rgba(158,74,74,.55)', color: '#efaaaa' }}>Vente</span>}
                         </td>
                         <td>
@@ -904,6 +1000,17 @@ export default function Portefeuille() {
             )}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              {opModal.mode === 'edit' && opModal.type === 'achat' && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={opDeleting}
+                  onClick={deleteOperation}
+                  style={{ marginRight: 'auto', color: '#ef9090', borderColor: 'rgba(158,74,74,.4)' }}
+                >
+                  {opDeleting ? 'Suppression...' : 'Supprimer'}
+                </button>
+              )}
               <button type="button" className="btn btn-ghost" onClick={closeOperationModal}>Annuler</button>
               <button
                 type="submit"
@@ -923,13 +1030,126 @@ export default function Portefeuille() {
           </form>
         </div>
       )}
+
+      {snapModal.open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(4, 8, 13, .68)', backdropFilter: 'blur(4px)', display: 'grid', placeItems: 'center', padding: 20 }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeSnapModal() }}
+        >
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 18, padding: 28, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', letterSpacing: '.18em', color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 6 }}>Import</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: 6 }}>Reprendre un portefeuille existant</div>
+              <div style={{ fontSize: '.82rem', color: 'var(--text-2)', lineHeight: 1.5 }}>
+                Entrez vos positions telles qu'elles apparaissent chez votre courtier. Le PRU est affiché sous "Prix de revient" ou "PRU".
+              </div>
+            </div>
+
+            <form onSubmit={submitSnap}>
+              <div className="form-group" style={{ position: 'relative', marginBottom: 12 }}>
+                <label className="form-label">Nom / Ticker *</label>
+                <input
+                  required
+                  type="text"
+                  className="form-input"
+                  placeholder="Ex: MSCI World, CW8.PA…"
+                  value={snapForm.nom}
+                  autoComplete="off"
+                  onChange={(e) => {
+                    setSnapForm((f) => ({ ...f, nom: e.target.value, ticker: '' }))
+                    searchSnapTicker(e.target.value)
+                  }}
+                  onKeyDown={(e) => {
+                    if (!snapShowSugg || !snapSugg.length) return
+                    if (e.key === 'ArrowDown') { e.preventDefault(); setSnapFocusedIdx((i) => Math.min(i + 1, snapSugg.length - 1)) }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); setSnapFocusedIdx((i) => Math.max(i - 1, 0)) }
+                    else if (e.key === 'Enter' && snapFocusedIdx >= 0) { e.preventDefault(); pickSnapSuggestion(snapSugg[snapFocusedIdx]) }
+                    else if (e.key === 'Escape') setSnapShowSugg(false)
+                  }}
+                />
+                {snapShowSugg && snapSugg.length > 0 && (
+                  <ul className="suggestions">
+                    {snapSugg.map((item, i) => (
+                      <li key={item.symbol || i} className={snapFocusedIdx === i ? 'focused' : ''} onMouseDown={() => pickSnapSuggestion(item)}>
+                        <span className="sug-name">{item.name}</span>
+                        <span className="sug-meta">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ''}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {snapForm.ticker && (
+                <div style={{ marginBottom: 12, fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Ticker : {snapForm.ticker}</div>
+              )}
+
+              <div className="form-row" style={{ marginBottom: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Type</label>
+                  <CustomSelect options={env === 'OR' ? TYPE_OPTIONS_OR : TYPE_OPTIONS} value={snapForm.type} onChange={(v) => setSnapForm((f) => ({ ...f, type: v }))} />
+                </div>
+                {env === 'PEA' && (
+                  <div className="form-group">
+                    <label className="form-label">Catégorie</label>
+                    <CustomSelect options={CATEGORIE_OPTIONS} value={snapForm.categorie} onChange={(v) => setSnapForm((f) => ({ ...f, categorie: v }))} />
+                  </div>
+                )}
+              </div>
+
+              <div className="form-row" style={{ marginBottom: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Quantité détenue *</label>
+                  <input required type="number" step="any" min="0.0001" className="form-input" placeholder="Ex: 12.5" value={snapForm.quantite} onChange={(e) => setSnapForm((f) => ({ ...f, quantite: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">PRU (EUR) *</label>
+                  <input required type="number" step="0.0001" min="0.0001" className="form-input" placeholder="Ex: 342.50" value={snapForm.pru} onChange={(e) => setSnapForm((f) => ({ ...f, pru: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 18 }}>
+                <label className="form-label">Date de référence</label>
+                <input type="date" className="form-input" value={snapForm.date_debut} onChange={(e) => setSnapForm((f) => ({ ...f, date_debut: e.target.value }))} />
+              </div>
+
+              <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={snapSaving}>
+                {snapSaving ? 'Ajout en cours...' : '+ Ajouter cette position'}
+              </button>
+            </form>
+
+            {snapAdded.length > 0 && (
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)', letterSpacing: '.15em', textTransform: 'uppercase', marginBottom: 8 }}>
+                  {snapAdded.length} position{snapAdded.length > 1 ? 's' : ''} importée{snapAdded.length > 1 ? 's' : ''}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {snapAdded.map((p, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.82rem', padding: '6px 10px', background: 'rgba(74,158,106,.08)', border: '1px solid rgba(74,158,106,.2)', borderRadius: 8 }}>
+                      <span style={{ color: 'var(--text-1)' }}>{p.nom}{p.ticker ? ` (${p.ticker})` : ''}</span>
+                      <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-3)', fontSize: '.75rem' }}>{p.quantite} × {p.pru} EUR</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-ghost" onClick={closeSnapModal}>
+                {snapAdded.length > 0 ? 'Terminer' : 'Annuler'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
 
 const FIRST_STEPS = {
   PEA: {
-    subtitle: 'Commencez à construire votre portefeuille actions et ETF. Le PEA offre une exonération d\'impôt sur les plus-values après 5 ans.',
+    subtitle: "Commencez à construire votre portefeuille actions et ETF. Le PEA offre une exonération d'impôt sur les plus-values après 5 ans.",
     actions: [
       { label: 'Ajouter une action ou un ETF', sub: 'Nouvelle position dans le PEA', icon: '+', action: 'add' },
       { label: 'Voir la répartition', sub: 'Cœur / satellite et géographie', icon: '◎', action: 'repartition' },
@@ -937,14 +1157,15 @@ const FIRST_STEPS = {
     ],
   },
   CTO: {
-    subtitle: 'Le CTO permet d\'investir sans plafond et sur tous les marchés. Idéal pour compléter le PEA.',
+    subtitle: "Le CTO permet d'investir sans plafond et sur tous les marchés. Idéal pour compléter le PEA.",
     actions: [
       { label: 'Ajouter une action ou un ETF', sub: 'Nouvelle position dans le CTO', icon: '+', action: 'add' },
+      { label: 'Voir la répartition', sub: 'Tous portefeuilles confondus', icon: '◎', action: 'repartition' },
       { label: 'Suivre les dividendes', sub: 'Centraliser les versements reçus', icon: '↗', action: 'dividendes' },
     ],
   },
   OR: {
-    subtitle: 'L\'or est une réserve de valeur historique. Ajoutez vos positions physiques ou ETC pour les suivre aux cours actuels.',
+    subtitle: "L'or est une réserve de valeur historique. Ajoutez vos positions physiques ou ETC pour les suivre aux cours actuels.",
     actions: [
       { label: 'Ajouter une position or', sub: 'Lingot, pièce, ETC ou minier', icon: '+', action: 'add' },
       { label: 'Voir la répartition globale', sub: 'Tous portefeuilles confondus', icon: '◎', action: 'repartition' },
@@ -952,7 +1173,7 @@ const FIRST_STEPS = {
   },
 }
 
-function FirstSteps({ env, onAdd, navigate }) {
+function FirstSteps({ env, onAdd, onSnap, navigate }) {
   const config = FIRST_STEPS[env] || FIRST_STEPS.PEA
 
   function handleAction(action) {
@@ -962,50 +1183,33 @@ function FirstSteps({ env, onAdd, navigate }) {
   }
 
   return (
-    <div style={{
-      border: '1px solid var(--line)',
-      borderRadius: 16,
-      padding: '28px 24px',
-      margin: '8px 0',
-    }}>
+    <div style={{ border: '1px solid var(--line)', borderRadius: 16, padding: '28px 24px', margin: '8px 0' }}>
       <div style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)', marginBottom: 8 }}>
         Premiers pas — {env}
       </div>
       <p style={{ fontSize: '.88rem', color: 'var(--text-2)', lineHeight: 1.65, marginBottom: 20, maxWidth: 520 }}>
         {config.subtitle}
       </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 16 }}>
         {config.actions.map((item) => (
           <button
             key={item.action}
             type="button"
             onClick={() => handleAction(item.action)}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 14,
+              display: 'flex', alignItems: 'center', gap: 14,
               padding: '12px 14px',
-              background: 'transparent',
-              border: '1px solid transparent',
-              borderRadius: 12,
-              cursor: 'pointer',
-              textAlign: 'left',
-              color: 'var(--text)',
+              background: 'transparent', border: '1px solid transparent', borderRadius: 12,
+              cursor: 'pointer', textAlign: 'left', color: 'var(--text)',
               transition: 'background .15s, border-color .15s',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-              e.currentTarget.style.borderColor = 'var(--line)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.borderColor = 'transparent'
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--line)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent' }}
           >
             <span style={{
               width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-              background: 'rgba(24,195,126,0.10)',
-              border: '1px solid rgba(24,195,126,0.22)',
+              background: 'rgba(24,195,126,0.10)', border: '1px solid rgba(24,195,126,0.22)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontFamily: 'var(--mono)', fontSize: '.82rem', color: 'var(--green)',
             }}>
@@ -1017,6 +1221,38 @@ function FirstSteps({ env, onAdd, navigate }) {
             </span>
           </button>
         ))}
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+        <button
+          type="button"
+          onClick={onSnap}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+            padding: '14px 16px',
+            background: 'rgba(24,195,126,.06)',
+            border: '1px solid rgba(24,195,126,.2)',
+            borderRadius: 12,
+            cursor: 'pointer', textAlign: 'left', color: 'var(--text)',
+            transition: 'background .15s, border-color .15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(24,195,126,.1)'; e.currentTarget.style.borderColor = 'rgba(24,195,126,.35)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(24,195,126,.06)'; e.currentTarget.style.borderColor = 'rgba(24,195,126,.2)' }}
+        >
+          <span style={{
+            width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+            background: 'rgba(24,195,126,.14)', border: '1px solid rgba(24,195,126,.32)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '.9rem', color: 'var(--green)',
+          }}>
+            ⇩
+          </span>
+          <span style={{ flex: 1 }}>
+            <span style={{ display: 'block', fontSize: '.88rem', fontWeight: 600 }}>Vous avez déjà un {env} ?</span>
+            <span style={{ display: 'block', fontSize: '.75rem', color: 'var(--text-3)', marginTop: 2 }}>Importez vos positions actuelles (PRU + quantité) en quelques secondes</span>
+          </span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: '.8rem', color: 'rgba(24,195,126,.6)', flexShrink: 0 }}>→</span>
+        </button>
       </div>
     </div>
   )
