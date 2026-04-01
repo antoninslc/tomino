@@ -1152,7 +1152,6 @@ const FIRST_STEPS = {
     subtitle: "Commencez à construire votre portefeuille actions et ETF. Le PEA offre une exonération d'impôt sur les plus-values après 5 ans.",
     actions: [
       { label: 'Ajouter une action ou un ETF', sub: 'Nouvelle position dans le PEA', icon: '+', action: 'add' },
-      { label: 'Reprendre un portefeuille existant', sub: 'Importer vos positions actuelles avec PRU', icon: '⇩', action: 'snap' },
       { label: 'Voir la répartition', sub: 'Cœur / satellite et géographie', icon: '◎', action: 'repartition' },
       { label: 'Suivre les dividendes', sub: 'Centraliser les versements reçus', icon: '↗', action: 'dividendes' },
     ],
@@ -1161,7 +1160,7 @@ const FIRST_STEPS = {
     subtitle: "Le CTO permet d'investir sans plafond et sur tous les marchés. Idéal pour compléter le PEA.",
     actions: [
       { label: 'Ajouter une action ou un ETF', sub: 'Nouvelle position dans le CTO', icon: '+', action: 'add' },
-      { label: 'Reprendre un portefeuille existant', sub: 'Importer vos positions actuelles avec PRU', icon: '⇩', action: 'snap' },
+      { label: 'Voir la répartition', sub: 'Tous portefeuilles confondus', icon: '◎', action: 'repartition' },
       { label: 'Suivre les dividendes', sub: 'Centraliser les versements reçus', icon: '↗', action: 'dividendes' },
     ],
   },
@@ -1169,7 +1168,6 @@ const FIRST_STEPS = {
     subtitle: "L'or est une réserve de valeur historique. Ajoutez vos positions physiques ou ETC pour les suivre aux cours actuels.",
     actions: [
       { label: 'Ajouter une position or', sub: 'Lingot, pièce, ETC ou minier', icon: '+', action: 'add' },
-      { label: 'Reprendre un portefeuille existant', sub: 'Importer vos positions actuelles avec PRU', icon: '⇩', action: 'snap' },
       { label: 'Voir la répartition globale', sub: 'Tous portefeuilles confondus', icon: '◎', action: 'repartition' },
     ],
   },
@@ -1180,56 +1178,38 @@ function FirstSteps({ env, onAdd, onSnap, navigate }) {
 
   function handleAction(action) {
     if (action === 'add') { onAdd(); return }
-    if (action === 'snap') { onSnap(); return }
     if (action === 'repartition') { navigate(`/repartition/${env}`); return }
     if (action === 'dividendes') { navigate('/dividendes'); return }
   }
 
   return (
-    <div style={{
-      border: '1px solid var(--line)',
-      borderRadius: 16,
-      padding: '28px 24px',
-      margin: '8px 0',
-    }}>
+    <div style={{ border: '1px solid var(--line)', borderRadius: 16, padding: '28px 24px', margin: '8px 0' }}>
       <div style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text)', marginBottom: 8 }}>
         Premiers pas — {env}
       </div>
       <p style={{ fontSize: '.88rem', color: 'var(--text-2)', lineHeight: 1.65, marginBottom: 20, maxWidth: 520 }}>
         {config.subtitle}
       </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 16 }}>
         {config.actions.map((item) => (
           <button
             key={item.action}
             type="button"
             onClick={() => handleAction(item.action)}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 14,
+              display: 'flex', alignItems: 'center', gap: 14,
               padding: '12px 14px',
-              background: 'transparent',
-              border: '1px solid transparent',
-              borderRadius: 12,
-              cursor: 'pointer',
-              textAlign: 'left',
-              color: 'var(--text)',
+              background: 'transparent', border: '1px solid transparent', borderRadius: 12,
+              cursor: 'pointer', textAlign: 'left', color: 'var(--text)',
               transition: 'background .15s, border-color .15s',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-              e.currentTarget.style.borderColor = 'var(--line)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.borderColor = 'transparent'
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'var(--line)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent' }}
           >
             <span style={{
               width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-              background: 'rgba(24,195,126,0.10)',
-              border: '1px solid rgba(24,195,126,0.22)',
+              background: 'rgba(24,195,126,0.10)', border: '1px solid rgba(24,195,126,0.22)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontFamily: 'var(--mono)', fontSize: '.82rem', color: 'var(--green)',
             }}>
@@ -1241,6 +1221,38 @@ function FirstSteps({ env, onAdd, onSnap, navigate }) {
             </span>
           </button>
         ))}
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+        <button
+          type="button"
+          onClick={onSnap}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 14,
+            padding: '14px 16px',
+            background: 'rgba(24,195,126,.06)',
+            border: '1px solid rgba(24,195,126,.2)',
+            borderRadius: 12,
+            cursor: 'pointer', textAlign: 'left', color: 'var(--text)',
+            transition: 'background .15s, border-color .15s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(24,195,126,.1)'; e.currentTarget.style.borderColor = 'rgba(24,195,126,.35)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(24,195,126,.06)'; e.currentTarget.style.borderColor = 'rgba(24,195,126,.2)' }}
+        >
+          <span style={{
+            width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+            background: 'rgba(24,195,126,.14)', border: '1px solid rgba(24,195,126,.32)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '.9rem', color: 'var(--green)',
+          }}>
+            ⇩
+          </span>
+          <span style={{ flex: 1 }}>
+            <span style={{ display: 'block', fontSize: '.88rem', fontWeight: 600 }}>Vous avez déjà un {env} ?</span>
+            <span style={{ display: 'block', fontSize: '.75rem', color: 'var(--text-3)', marginTop: 2 }}>Importez vos positions actuelles (PRU + quantité) en quelques secondes</span>
+          </span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: '.8rem', color: 'rgba(24,195,126,.6)', flexShrink: 0 }}>→</span>
+        </button>
       </div>
     </div>
   )
