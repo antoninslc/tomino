@@ -559,42 +559,220 @@ mais la vraie contrainte est appliquée **côté serveur** dans `save_profil()` 
 
 ## Design system
 
+### Philosophie visuelle
+Tomino est une **application financière sombre et dense**. Le style est sobre, chiffré, orienté data — jamais décoratif.
+Règles fondamentales :
+- Fond très sombre (`#0b0d10`), éléments légèrement élevés en couches successives
+- Aucun emoji, aucune image décorative, aucun gradient tape-à-l'oeil
+- Le vert `#18c37e` est la seule couleur d'accentuation — utilisée avec parcimonie (valeurs positives, CTA principal, icônes actives)
+- La monospace IBM Plex Mono pour tout ce qui est donnée, chiffre, ticker, label technique
+- `overscroll-behavior: none` sur `html` et `body` (anti rubber-band Tauri/WebKit)
+
+---
+
 ### Couleurs (CSS variables dans `index.css`)
 ```css
---bg:         #0b0d10                    /* fond principal */
---bg-elev:    #111419                    /* sidebar, cards */
---bg-soft:    #151a21                    /* inputs, bg secondaire */
---bg-soft-2:  #1b2129                    /* bg tertiaire */
---line:       rgba(255,255,255,0.07)     /* bordures */
---line-strong:rgba(255,255,255,0.13)     /* bordures marquées */
---text:       #f5f7fb                    /* texte principal */
---text-2:     #adb7c7                    /* texte secondaire */
---text-3:     #718095                    /* texte tertiaire / labels */
---green:      #18c37e                    /* positif */
---red:        #ff6b6b                    /* négatif */
-/* gold #c9a84c — utilisé inline (badge Tomino+), pas de variable CSS dédiée */
+/* Fonds — hiérarchie des couches */
+--bg:          #0b0d10   /* fond de page (le plus sombre) */
+--bg-elev:     #111419   /* sidebar, cartes élevées */
+--bg-soft:     #151a21   /* inputs, badges, zones secondaires */
+--bg-soft-2:   #1b2129   /* bg tertiaire, survols légers */
+
+/* Bordures */
+--line:        rgba(255,255,255,0.07)   /* bordures standard */
+--line-strong: rgba(255,255,255,0.13)   /* bordures marquées */
+--border:      rgba(255,255,255,0.07)   /* alias de --line (compat settings) */
+
+/* Texte */
+--text:   #f5f7fb   /* texte principal */
+--text-2: #adb7c7   /* texte secondaire (labels, sous-titres) */
+--text-3: #718095   /* texte tertiaire (placeholders, annotations) */
+
+/* Couleurs sémantiques */
+--green: #18c37e   /* positif, CTA principal, accentuation */
+--red:   #ff6b6b   /* négatif, danger, alertes */
+--blue:  #6ee7ff   /* info, liens externes, indicateurs neutres */
+/* gold #c9a84c — utilisé inline uniquement (badge Tomino+, Or) — pas de variable CSS */
+
+/* Radius */
+--radius-lg: 24px
+--radius-md: 18px
+--radius-sm: 14px
 ```
+
+---
 
 ### Typographie
 ```css
---sans: 'Manrope', system-ui, sans-serif   /* UI générale */
---mono: 'IBM Plex Mono', monospace         /* données, chiffres, labels */
-/* Pas de serif — pas d'Instrument Serif dans ce projet */
+--sans: 'Manrope', system-ui, sans-serif    /* toute l'UI */
+--mono: 'IBM Plex Mono', monospace          /* données, chiffres, tickers, badges, labels */
+/* Pas de serif (pas d'Instrument Serif dans ce projet) */
 ```
 
-### Classes utilitaires custom
-- `.card` — conteneur avec fond bg1 et bordure
-- `.stat` — stat card avec label + valeur
-- `.stat-value` — grand chiffre serif
-- `.stat-pv.pos/.neg/.neu` — badge +/- value
-- `.tbl-wrap` — wrapper tableau scrollable
+Conventions :
+- Titres de page : `font-size: 1.15rem`, `font-weight: 700`, `letter-spacing: -0.02em`
+- Sous-titres / descriptions : `font-size: .88rem`, `color: var(--text-2)`, `line-height: 1.65`
+- Chiffres clés (stats) : `--mono`, taille `1.35–2rem` selon contexte
+- Labels de badge/tag : `--mono`, `font-size: .72–.78rem`
+
+---
+
+### Espacement et layout
+- Les pages s'affichent dans un conteneur central, `max-width: 980px` (ou `1060px` pour les pages larges)
+- Sections séparées par `gap: 24px` ou `margin-bottom: 32px`
+- Grilles responsive : classes `.g4` (4 cols), `.g3`, `.g2`, `.g2-3`
+- Pas de padding latéral agressif — le contenu respire dans ses cartes
+- Grille interne dans les cartes : `gap: 12–16px`
+
+---
+
+### Hiérarchie des fonds (couches)
+
+```
+Page (--bg #0b0d10)
+  └── Sidebar / Cartes (--bg-elev #111419)
+        └── Inputs / Badges / Zones secondaires (--bg-soft #151a21)
+              └── Survols / Tertiaire (--bg-soft-2 #1b2129)
+```
+
+Ne jamais mettre un fond plus sombre qu'un parent. Les modales flottent au-dessus avec `background: #111419` + `border: 1px solid var(--line-strong)`.
+
+---
+
+### Composants récurrents
+
+#### `.card`
+Conteneur de base : `background: var(--bg-elev)`, `border: 1px solid var(--line)`, `border-radius: 16–18px`, `padding: 20–28px`.
+
+#### `.btn` / `.btn-primary` / `.btn-ghost` / `.btn-danger`
+- `.btn` — bouton secondaire neutre
+- `.btn-primary` — fond vert `--green`, texte sombre
+- `.btn-ghost` — transparent, bordure `--line`, texte `--text-2`
+- `.btn-danger` — rouge, pour les suppressions
+
+#### `.badge`
+Tags inline : `--mono`, petite taille, `border-radius: 6px`, fond semi-transparent.
+Variantes : `.badge-green` (vert), `.badge-gold` (doré), `.badge-dim` (gris).
+Usage dans l'historique des mouvements :
+- Achat → bordure verte `rgba(24,195,126,.3)`, texte `#7fe0b8`
+- Vente → bordure rouge `rgba(255,107,107,.3)`, texte `#ffaaaa`
+- Position initiale (snapshot) → bordure bleue `rgba(100,140,200,.45)`, texte `#aac4ef`
+
+#### Pattern Section/Row (Settings)
+Pages de paramètres uniquement. Deux helpers JSX locaux :
+```jsx
+function Section({ label, children }) {
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ fontSize: '.72rem', fontWeight: 700, letterSpacing: '.08em',
+                    color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 8 }}>
+        {label}
+      </div>
+      <div style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border)' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+function Row({ label, sub, children }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '14px 18px', borderBottom: '1px solid var(--border)',
+                  background: 'var(--bg-elev)' }}>
+      <div>
+        <div style={{ fontSize: '.88rem', fontWeight: 600 }}>{label}</div>
+        {sub && <div style={{ fontSize: '.78rem', color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
+      </div>
+      <div>{children}</div>
+    </div>
+  )
+}
+```
+Le dernier `Row` d'une `Section` n'a pas de `borderBottom` (retiré via `:last-child` ou style inline).
+
+#### `.settings-row` (Settings — listes de liens)
+Utilisé pour les listes de navigation dans Settings (ex: ExportPage). Style :
+`display: flex`, `align-items: center`, `justify-content: space-between`, `padding: 14px 18px`,
+`border-bottom: 1px solid var(--border)`, fond transparent, texte `--text`.
+Flèche de navigation `›` en `var(--text-2)`, `font-size: 1.2rem`.
+
+#### BackHeader
+Pattern systématique pour les sous-pages de Settings :
+```jsx
+<BackHeader
+  title="Titre de la page"
+  subtitle="Description courte de la section."
+  onBack={() => navigate('/settings')}
+/>
+```
+
+#### Modales
+- Toujours via `createPortal(…, document.body)` — jamais dans le flux DOM
+- `z-index: 9000` minimum (overlay), contenu à `9001`
+- Overlay : `background: rgba(0,0,0,0.65)`, `backdrop-filter: blur(4px)`
+- Panneau : `background: #111419`, `border: 1px solid var(--line-strong)`, `border-radius: 18px`
+- Fermeture : touche Échap + clic sur l'overlay
+- Jamais de modal imbriquée dans un conteneur `overflow: hidden`
+
+#### État vide / Premiers pas (FirstSteps)
+Affiché quand une enveloppe est vide. Structure :
+- Conteneur : `border: 1px solid var(--line)`, `border-radius: 16px`, `padding: 28px 24px`
+- Titre `1.1rem`, `font-weight: 700`
+- Liste d'actions : boutons transparents, hover `rgba(255,255,255,0.04)` + bordure `--line`, icône dans carré `34×34px` fond `rgba(24,195,126,.10)` + bordure `rgba(24,195,126,.22)`
+- Carte snapshot (en bas, séparée par un `borderTop: 1px solid var(--line)`) : fond `rgba(24,195,126,.06)`, bordure `rgba(24,195,126,.2)`, icône `⇩`, texte "Vous avez déjà un {env} ?"
+
+#### Formulaires inline (ajout d'actif dans Portefeuille)
+- Fond `var(--bg-soft)`, `border: 1px solid var(--line)`, `border-radius: 14px`, `padding: 16px 18px`
+- Champs : classe `.form-input` (fond `var(--bg)`, `border: 1px solid var(--line)`, focus `--green`)
+- Disposition en grille 2–4 colonnes sur desktop, 1 colonne sur mobile
+
+---
+
+### Interactions et états
+
+- **Hover standard** : fond `rgba(255,255,255,0.04)`, transition `background .15s`
+- **Hover accentué (bouton primaire)** : vert légèrement plus sombre
+- **Focus input** : `border-color: var(--green)`, `box-shadow: 0 0 0 2px rgba(24,195,126,.15)`
+- **Transitions** : `0.15s ease` pour couleur et fond — jamais de transition de layout
+- **Disabled** : `opacity: 0.45`, `cursor: not-allowed`
+- **Loading** : texte de remplacement (ex: "Chargement…"), pas de spinner animé complexe
+- **Erreurs** : texte `--red`, fond `rgba(255,107,107,.08)`, bordure `rgba(255,107,107,.25)`
+
+---
+
+### Stats et chiffres
+
+- **Valeurs positives** : `color: var(--green)` ou classe `.pos`
+- **Valeurs négatives** : `color: var(--red)` ou classe `.neg`
+- **Valeurs neutres / indisponibles** : `color: var(--text-3)`, affichage `—` (tiret cadratin)
+- **Pourcentages** : toujours avec signe `+` si positif, formatés à 2 décimales
+- **Montants** : `Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' })`
+- Jamais de formatage Python avec `"{:,.0f}".format()` côté templates (il n'y en a pas)
+
+---
+
+### Classes utilitaires custom (`index.css`)
+- `.card` — conteneur élevé avec bordure
+- `.stat`, `.stat-label`, `.stat-value` — blocs de stats
+- `.stat-pv.pos/.neg/.neu` — badge variation
+- `.tbl-wrap` — wrapper tableau scrollable horizontal
 - `.badge`, `.badge-gold`, `.badge-green`, `.badge-dim`
 - `.btn`, `.btn-primary`, `.btn-ghost`, `.btn-danger`
-- `.fade-up`, `.fade-up-2`, `.fade-up-3` — animations d'entrée
+- `.fade-up`, `.fade-up-2`, `.fade-up-3` — animations d'entrée en séquence
 - `.hero-strip`, `.hero-title`, `.hero-kicker`, `.hero-subtitle`
-- `.g4`, `.g3`, `.g2`, `.g2-3` — grilles responsive
+- `.g4`, `.g3`, `.g2`, `.g2-3` — grilles responsive CSS Grid
 - `.form-input`, `.form-label`, `.form-group`, `.form-row`
-- `CustomSelect.jsx` — dropdown custom avec fond sombre, bordure verte au survol, fermeture clic extérieur/Échap
+- `.settings-row`, `.settings-row-info`, `.settings-row-title`, `.settings-row-sub`
+- `CustomSelect.jsx` — dropdown custom : fond `--bg-soft`, bordure verte au survol, fermeture clic extérieur/Échap, jamais de `<select>` natif dans l'UI principale
+
+---
+
+## Workflow Git
+
+- **Branche de travail : `main` uniquement.** Toutes les modifications sont commitées directement sur `main`. Pas de feature branches, pas de worktrees, pas de rebases complexes.
+- Committer régulièrement avec des messages clairs en français ou en anglais.
+- Ne jamais committer `.env`, `patrimoine.db`, `node_modules`, `__pycache__`, `.venv`.
+- Un commit = une unité logique de changement (feature, fix, style). Ne pas mélanger plusieurs sujets non liés dans le même commit.
 
 ---
 
