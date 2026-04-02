@@ -450,10 +450,10 @@ export default function ActifForm() {
                           e.preventDefault()
                           pickSuggestion(item)
                         }}
-                        style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 14px', textAlign: 'left', border: 0, color: 'var(--text)', background: focusedIdx === i ? 'rgba(255,255,255,0.06)' : 'transparent', cursor: 'pointer' }}
+                        style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 14px', textAlign: 'left', border: 0, borderBottom: i < suggestions.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 0, color: 'var(--text)', background: focusedIdx === i ? 'rgba(255,255,255,0.06)' : 'transparent', cursor: 'pointer' }}
                       >
-                        <span style={{ fontSize: '.875rem' }}>{item.name}</span>
-                        <span style={{ fontFamily: 'var(--mono)', fontSize: '.7rem', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ''}</span>
+                        <span style={{ fontSize: '.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: '.7rem', color: 'var(--text-3)', whiteSpace: 'nowrap', flexShrink: 0 }}>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ''}</span>
                       </button>
                     ))}
                   </div>

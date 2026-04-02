@@ -379,14 +379,19 @@ export default function Onboarding() {
                       }}
                     />
                     {snapShowSugg && snapSugg.length > 0 && (
-                      <ul className="suggestions">
+                      <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#1a1d22', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden', zIndex: 30, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
                         {snapSugg.map((item, i) => (
-                          <li key={item.symbol || i} className={snapFocusedIdx === i ? 'focused' : ''} onMouseDown={() => pickSnapSuggestion(item)}>
-                            <span className="sug-name">{item.name}</span>
-                            <span className="sug-meta">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ''}</span>
-                          </li>
+                          <button
+                            type="button"
+                            key={`${item.symbol || 'no-symbol'}-${i}`}
+                            onMouseDown={(e) => { e.preventDefault(); pickSnapSuggestion(item) }}
+                            style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 14px', textAlign: 'left', border: 0, borderBottom: i < snapSugg.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 0, color: 'var(--text)', background: snapFocusedIdx === i ? 'rgba(255,255,255,0.06)' : 'transparent', cursor: 'pointer' }}
+                          >
+                            <span style={{ fontSize: '.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: '.7rem', color: 'var(--text-3)', whiteSpace: 'nowrap', flexShrink: 0 }}>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ''}</span>
+                          </button>
                         ))}
-                      </ul>
+                      </div>
                     )}
                   </div>
                 </div>
