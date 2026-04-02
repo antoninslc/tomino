@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask, request, jsonify, Response, stream_with_context, g
 from flask_cors import CORS
 import database as db

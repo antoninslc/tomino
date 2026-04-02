@@ -286,12 +286,13 @@ _COUNTRY_CODES = {
 
 def _fmp_profile(ticker: str) -> dict:
     """Retourne sector + country depuis Financial Modeling Prep."""
-    if not _FMP_API_KEY:
+    key = _FMP_API_KEY or os.getenv("FMP_API_KEY", "")
+    if not key:
         return {}
     try:
         r = _get_session().get(
             f"{_FMP_BASE}/profile/{ticker}",
-            params={"apikey": _FMP_API_KEY},
+            params={"apikey": key},
             timeout=8,
         )
         r.raise_for_status()
@@ -397,7 +398,9 @@ def get_info_titre(ticker: str) -> dict:
         except Exception:
             pass
 
-    _set_cache_entries({cache_key: {"timestamp": now, "value": info}})
+    # Ne pas mettre en cache un résultat vide — on réessaiera au prochain appel
+    if info:
+        _set_cache_entries({cache_key: {"timestamp": now, "value": info}})
     return info
 
 
