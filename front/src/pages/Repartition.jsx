@@ -158,7 +158,8 @@ export default function Repartition() {
       <div className="card fade-up-2" style={{ marginBottom: 16 }}>
         <div className="card-label">Note</div>
         <div style={{ color: 'var(--text-2)', fontSize: '.9rem', lineHeight: 1.6 }}>
-          Certaines lignes ETF peuvent ne pas exposer de métadonnées sectorielles via Yahoo Finance.
+          Les ETFs sont ventil&eacute;s par secteur selon leurs pondérations internes (Yahoo Finance).
+          La répartition géographique n'est disponible que pour les actions individuelles.
         </div>
       </div>
 

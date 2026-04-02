@@ -270,9 +270,30 @@ def get_prix(ticker: str) -> dict | None:
     return result
 
 
+_SECTOR_LABEL = {
+    "realestate": "Real Estate",
+    "consumer_cyclical": "Consumer Cyclical",
+    "basic_materials": "Basic Materials",
+    "consumer_defensive": "Consumer Defensive",
+    "technology": "Technology",
+    "communication_services": "Communication Services",
+    "financial_services": "Financial Services",
+    "utilities": "Utilities",
+    "industrials": "Industrials",
+    "energy": "Energy",
+    "healthcare": "Healthcare",
+}
+
+
+def _sector_key_to_label(key: str) -> str:
+    return _SECTOR_LABEL.get(key.lower(), key.replace("_", " ").title())
+
+
 def get_info_titre(ticker: str) -> dict:
     """
-    Retourne des informations de profil Yahoo: secteur et pays.
+    Retourne des informations de profil Yahoo : secteur et pays.
+    - Pour les actions : sector + country via assetProfile/summaryProfile
+    - Pour les ETFs : sector_weights (dict nom→poids 0-1) via topHoldings.sectorWeightings
     Cache 24h dans _cache avec clé "info_{ticker}".
     """
     if not ticker:
@@ -288,7 +309,7 @@ def get_info_titre(ticker: str) -> dict:
         return value if isinstance(value, dict) else {}
 
     url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
-    params = {"modules": "assetProfile,summaryProfile"}
+    params = {"modules": "assetProfile,summaryProfile,topHoldings"}
 
     try:
         r = _get_session().get(url, params=params, timeout=8)
@@ -310,9 +331,18 @@ def get_info_titre(ticker: str) -> dict:
         if country:
             info["country"] = country
 
-        # Force l'accès pour rester compatible avec le schéma demandé,
-        # même si la donnée n'est pas renvoyée au client.
-        _ = profile.get("longBusinessSummary")
+        # ETFs : pas de sector dans assetProfile — utiliser sectorWeightings de topHoldings
+        if not sector:
+            top = info_block.get("topHoldings") or {}
+            raw_weights = top.get("sectorWeightings") or []
+            weights = {}
+            for item in raw_weights:
+                for k, v in item.items():
+                    label = _sector_key_to_label(k)
+                    if label and isinstance(v, (int, float)) and v > 0:
+                        weights[label] = round(float(v), 4)
+            if weights:
+                info["sector_weights"] = weights
 
         _set_cache_entries({
             cache_key: {

@@ -4328,9 +4328,15 @@ def api_repartition():
 
         secteur = str(info.get("sector", "")).strip()
         country = str(info.get("country", "")).strip()
+        sector_weights = info.get("sector_weights") or {}
 
         if secteur:
             secteurs[secteur] = secteurs.get(secteur, 0.0) + valeur
+        elif sector_weights:
+            # ETF : distribuer la valeur proportionnellement sur les secteurs
+            for s, w in sector_weights.items():
+                secteurs[s] = secteurs.get(s, 0.0) + valeur * w
+
         if country:
             pays[country] = pays.get(country, 0.0) + valeur
 
