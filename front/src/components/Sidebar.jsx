@@ -57,6 +57,13 @@ const ICONS = {
       <path d="M10.5 5H13.5M10.5 7.5H13.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity=".6"/>
     </svg>
   ),
+  repartition: (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="7.5" cy="7.5" r="5.5" stroke="currentColor" strokeWidth="1.3"/>
+      <path d="M7.5 2V7.5L11.4 11.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      <path d="M7.5 7.5L3 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity=".6"/>
+    </svg>
+  ),
   dividendes: (
     <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M2 12.5H13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -119,6 +126,7 @@ const ACTIFS_ITEMS = [
 ]
 
 const SUIVI_ITEMS = [
+  { to: '/repartition/PEA', label: 'Répartition', icon: 'repartition' },
   { to: '/dividendes', label: 'Dividendes', icon: 'dividendes' },
   { to: '/alertes', label: 'Alertes', icon: 'alertes' },
   { to: '/rapport', label: 'Rapport mensuel', icon: 'rapport' },

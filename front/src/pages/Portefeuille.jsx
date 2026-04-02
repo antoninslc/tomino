@@ -1061,6 +1061,8 @@ export default function Portefeuille() {
                     setSnapForm((f) => ({ ...f, nom: e.target.value, ticker: '' }))
                     searchSnapTicker(e.target.value)
                   }}
+                  onFocus={() => setSnapShowSugg(snapSugg.length > 0)}
+                  onBlur={() => setTimeout(() => setSnapShowSugg(false), 160)}
                   onKeyDown={(e) => {
                     if (!snapShowSugg || !snapSugg.length) return
                     if (e.key === 'ArrowDown') { e.preventDefault(); setSnapFocusedIdx((i) => Math.min(i + 1, snapSugg.length - 1)) }
@@ -1070,14 +1072,22 @@ export default function Portefeuille() {
                   }}
                 />
                 {snapShowSugg && snapSugg.length > 0 && (
-                  <ul className="suggestions">
+                  <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#1a1d22', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, overflow: 'hidden', zIndex: 30, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
                     {snapSugg.map((item, i) => (
-                      <li key={item.symbol || i} className={snapFocusedIdx === i ? 'focused' : ''} onMouseDown={() => pickSnapSuggestion(item)}>
-                        <span className="sug-name">{item.name}</span>
-                        <span className="sug-meta">{item.symbol}{item.exchange ? ` · ${item.exchange}` : ''}</span>
-                      </li>
+                      <button
+                        type="button"
+                        key={`${item.symbol || 'no-symbol'}-${i}`}
+                        onMouseDown={(e) => {
+                          e.preventDefault()
+                          pickSnapSuggestion(item)
+                        }}
+                        style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 14px', textAlign: 'left', border: 0, color: 'var(--text)', background: snapFocusedIdx === i ? 'rgba(255,255,255,0.06)' : 'transparent', cursor: 'pointer' }}
+                      >
+                        <span style={{ fontSize: '.875rem' }}>{item.name}</span>
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: '.7rem', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{item.symbol}{item.exchange ? ` · ${item.exchange}` : ''}</span>
+                      </button>
                     ))}
-                  </ul>
+                  </div>
                 )}
               </div>
 
@@ -1114,7 +1124,12 @@ export default function Portefeuille() {
                 <input type="date" className="form-input" value={snapForm.date_debut} onChange={(e) => setSnapForm((f) => ({ ...f, date_debut: e.target.value }))} />
               </div>
 
-              <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={snapSaving}>
+              <button
+                type="submit"
+                className="btn"
+                style={{ width: '100%', background: '#ffffff', color: '#0b0d10', border: '1px solid rgba(255,255,255,0.82)', boxShadow: 'none', transform: 'none', transition: 'none' }}
+                disabled={snapSaving}
+              >
                 {snapSaving ? 'Ajout en cours...' : '+ Ajouter cette position'}
               </button>
             </form>
