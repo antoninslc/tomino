@@ -374,7 +374,7 @@ export default function Onboarding() {
                         if (!snapShowSugg || !snapSugg.length) return
                         if (e.key === 'ArrowDown') { e.preventDefault(); setSnapFocusedIdx((i) => Math.min(i + 1, snapSugg.length - 1)) }
                         else if (e.key === 'ArrowUp') { e.preventDefault(); setSnapFocusedIdx((i) => Math.max(i - 1, 0)) }
-                        else if (e.key === 'Enter' && snapFocusedIdx >= 0) { e.preventDefault(); pickSnapSuggestion(snapSugg[snapFocusedIdx]) }
+                        else if (e.key === 'Enter') { e.preventDefault(); const idx = snapFocusedIdx >= 0 ? snapFocusedIdx : 0; if (snapSugg[idx]) pickSnapSuggestion(snapSugg[idx]) }
                         else if (e.key === 'Escape') setSnapShowSugg(false)
                       }}
                     />

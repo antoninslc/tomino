@@ -261,9 +261,10 @@ export default function ActifForm() {
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setFocusedIdx((idx) => Math.max(idx - 1, 0))
-    } else if (e.key === 'Enter' && focusedIdx >= 0) {
+    } else if (e.key === 'Enter') {
       e.preventDefault()
-      pickSuggestion(suggestions[focusedIdx])
+      const idx = focusedIdx >= 0 ? focusedIdx : 0
+      if (suggestions[idx]) pickSuggestion(suggestions[idx])
     } else if (e.key === 'Escape') {
       setShowSuggestions(false)
       setFocusedIdx(-1)

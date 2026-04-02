@@ -879,12 +879,26 @@ _ALLOWED_TYPES = {"EQUITY", "ETF", "MUTUALFUND"}
 
 def _normalize_company_name(name: str) -> str:
     n = name.lower().strip()
-    for suffix in (" se", " sa", " ag", " plc", " inc", " corp", " ltd", " llc", " nv", " bv", " ab", " asa", " oyj", " spa"):
+    # Suffixes entités légales
+    for suffix in (" se", " sa", " ag", " plc", " inc", " corp", " ltd", " llc", " nv", " bv", " ab", " asa", " oyj", " spa", " group", " holding", " holdings"):
+        if n.endswith(suffix):
+            n = n[:-len(suffix)].strip()
+    # Suffixes fonds/ETF
+    for suffix in (" ucits", " ucit", " uci", " etf", " etc", " fund", " trust", " pea"):
         if n.endswith(suffix):
             n = n[:-len(suffix)].strip()
     if n.endswith(" a"):
         n = n[:-2].strip()
     return n
+
+
+def _exc_rank(exc: str) -> int:
+    """Priorité d'exchange : plus bas = meilleur. Primary EU/US > autres connus > inconnu > régional."""
+    if exc in _PRIMARY_EXCHANGES:
+        return 0
+    if exc in _REGIONAL_EXCHANGES:
+        return 2
+    return 1  # inconnu (CXE, etc.) : entre les deux
 
 
 def _dedup_search(results: list, name_key: str = "nom", exchange_key: str = "exchange") -> list:
@@ -899,7 +913,8 @@ def _dedup_search(results: list, name_key: str = "nom", exchange_key: str = "exc
         if key not in seen:
             seen[key] = len(out)
             out.append(item)
-        elif exc in _PRIMARY_EXCHANGES and str(out[seen[key]].get(exchange_key) or "") in _REGIONAL_EXCHANGES:
+        elif _exc_rank(exc) < _exc_rank(str(out[seen[key]].get(exchange_key) or "")):
+            # Le nouvel item a un exchange de meilleure priorité → remplace
             out[seen[key]] = item
     return out
 
