@@ -877,18 +877,24 @@ _ISIN_TICKER = _re.compile(r'^[A-Z]{2}[A-Z0-9]{9,11}\.[A-Z]+$')
 _ALLOWED_TYPES = {"EQUITY", "ETF", "MUTUALFUND"}
 
 
+_NORMALIZE_SUFFIXES = (
+    " se", " sa", " ag", " plc", " inc", " corp", " ltd", " llc",
+    " nv", " bv", " ab", " asa", " oyj", " spa",
+    " group", " holding", " holdings",
+    " ucits", " ucit", " uci", " etf", " etc", " fund", " trust", " pea",
+    " a", " b", " c",  # classes d'actions (Airbus SE A, etc.)
+)
+
 def _normalize_company_name(name: str) -> str:
     n = name.lower().strip()
-    # Suffixes entités légales
-    for suffix in (" se", " sa", " ag", " plc", " inc", " corp", " ltd", " llc", " nv", " bv", " ab", " asa", " oyj", " spa", " group", " holding", " holdings"):
-        if n.endswith(suffix):
-            n = n[:-len(suffix)].strip()
-    # Suffixes fonds/ETF
-    for suffix in (" ucits", " ucit", " uci", " etf", " etc", " fund", " trust", " pea"):
-        if n.endswith(suffix):
-            n = n[:-len(suffix)].strip()
-    if n.endswith(" a"):
-        n = n[:-2].strip()
+    # Boucle jusqu'à stabilisation — nécessaire pour les cas comme
+    # "Airbus SE A" → strip " a" → "airbus se" → strip " se" → "airbus"
+    prev = None
+    while prev != n:
+        prev = n
+        for suffix in _NORMALIZE_SUFFIXES:
+            if n.endswith(suffix):
+                n = n[:-len(suffix)].strip()
     return n
 
 
