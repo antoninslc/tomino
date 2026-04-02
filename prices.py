@@ -270,6 +270,48 @@ def get_prix(ticker: str) -> dict | None:
     return result
 
 
+_FMP_API_KEY = os.getenv("FMP_API_KEY", "")
+_FMP_BASE = "https://financialmodelingprep.com/api/v3"
+
+_COUNTRY_CODES = {
+    "FR": "France", "DE": "Germany", "GB": "United Kingdom", "US": "United States",
+    "NL": "Netherlands", "CH": "Switzerland", "ES": "Spain", "IT": "Italy",
+    "BE": "Belgium", "SE": "Sweden", "DK": "Denmark", "NO": "Norway",
+    "FI": "Finland", "PT": "Portugal", "AT": "Austria", "IE": "Ireland",
+    "LU": "Luxembourg", "JP": "Japan", "CN": "China", "HK": "Hong Kong",
+    "KR": "South Korea", "AU": "Australia", "CA": "Canada", "BR": "Brazil",
+    "IN": "India", "TW": "Taiwan", "SG": "Singapore", "ZA": "South Africa",
+}
+
+
+def _fmp_profile(ticker: str) -> dict:
+    """Retourne sector + country depuis Financial Modeling Prep."""
+    if not _FMP_API_KEY:
+        return {}
+    try:
+        r = _get_session().get(
+            f"{_FMP_BASE}/profile/{ticker}",
+            params={"apikey": _FMP_API_KEY},
+            timeout=8,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if not data or not isinstance(data, list):
+            return {}
+        p = data[0]
+        sector = str(p.get("sector") or "").strip()
+        raw_country = str(p.get("country") or "").strip().upper()
+        country = _COUNTRY_CODES.get(raw_country, raw_country.title()) if raw_country else ""
+        result = {}
+        if sector:
+            result["sector"] = sector
+        if country:
+            result["country"] = country
+        return result
+    except Exception:
+        return {}
+
+
 _SECTOR_LABEL = {
     "realestate": "Real Estate",
     "consumer_cyclical": "Consumer Cyclical",
@@ -291,10 +333,12 @@ def _sector_key_to_label(key: str) -> str:
 
 def get_info_titre(ticker: str) -> dict:
     """
-    Retourne des informations de profil Yahoo : secteur et pays.
-    - Pour les actions : sector + country via assetProfile/summaryProfile
-    - Pour les ETFs : sector_weights (dict nom→poids 0-1) via topHoldings.sectorWeightings
-    Cache 24h dans _cache avec clé "info_{ticker}".
+    Retourne secteur et pays pour un ticker.
+    Stratégie :
+    1. FMP (Financial Modeling Prep) → sector + country fiables pour les actions EU/US
+    2. Yahoo Finance assetProfile → fallback si FMP absent ou vide
+    3. Yahoo Finance topHoldings → sector_weights pour les ETFs (pas de sector dans assetProfile)
+    Cache 24h.
     """
     if not ticker:
         return {}
@@ -308,51 +352,53 @@ def get_info_titre(ticker: str) -> dict:
         value = entry.get("value")
         return value if isinstance(value, dict) else {}
 
-    url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
-    params = {"modules": "assetProfile,summaryProfile,topHoldings"}
+    info = {}
 
-    try:
-        r = _get_session().get(url, params=params, timeout=8)
-        r.raise_for_status()
-        payload = r.json()
+    # 1. FMP pour sector + country (actions)
+    fmp = _fmp_profile(ticker)
+    if fmp.get("sector"):
+        info["sector"] = fmp["sector"]
+    if fmp.get("country"):
+        info["country"] = fmp["country"]
 
-        result = payload.get("quoteSummary", {}).get("result") or []
-        if not result:
-            return {}
+    # 2. Yahoo Finance si FMP n'a pas tout renseigné
+    if not info.get("sector") or not info.get("country"):
+        try:
+            url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
+            r = _get_session().get(url, params={"modules": "assetProfile,summaryProfile,topHoldings"}, timeout=8)
+            r.raise_for_status()
+            result_list = r.json().get("quoteSummary", {}).get("result") or []
+            if result_list:
+                info_block = result_list[0]
+                profile = info_block.get("assetProfile") or info_block.get("summaryProfile") or {}
 
-        info_block = result[0]
-        profile = info_block.get("assetProfile") or info_block.get("summaryProfile") or {}
-        sector = str(profile.get("sector") or "").strip()
-        country = str(profile.get("country") or "").strip()
+                if not info.get("sector"):
+                    sector = str(profile.get("sector") or "").strip()
+                    if sector:
+                        info["sector"] = sector
 
-        info = {}
-        if sector:
-            info["sector"] = sector
-        if country:
-            info["country"] = country
+                if not info.get("country"):
+                    country = str(profile.get("country") or "").strip()
+                    if country:
+                        info["country"] = country
 
-        # ETFs : pas de sector dans assetProfile — utiliser sectorWeightings de topHoldings
-        if not sector:
-            top = info_block.get("topHoldings") or {}
-            raw_weights = top.get("sectorWeightings") or []
-            weights = {}
-            for item in raw_weights:
-                for k, v in item.items():
-                    label = _sector_key_to_label(k)
-                    if label and isinstance(v, (int, float)) and v > 0:
-                        weights[label] = round(float(v), 4)
-            if weights:
-                info["sector_weights"] = weights
+                # ETFs : pas de sector → chercher dans topHoldings.sectorWeightings
+                if not info.get("sector"):
+                    top = info_block.get("topHoldings") or {}
+                    raw_weights = top.get("sectorWeightings") or []
+                    weights = {}
+                    for item in raw_weights:
+                        for k, v in item.items():
+                            label = _sector_key_to_label(k)
+                            if label and isinstance(v, (int, float)) and v > 0:
+                                weights[label] = round(float(v), 4)
+                    if weights:
+                        info["sector_weights"] = weights
+        except Exception:
+            pass
 
-        _set_cache_entries({
-            cache_key: {
-                "timestamp": now,
-                "value": info,
-            }
-        })
-        return info
-    except Exception:
-        return {}
+    _set_cache_entries({cache_key: {"timestamp": now, "value": info}})
+    return info
 
 
 def enrichir_actifs(actifs: list) -> list:
