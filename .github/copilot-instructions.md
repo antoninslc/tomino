@@ -87,7 +87,7 @@ tomino_track/
             ├── AnalyseIA.jsx      ← 3 modes d'analyse Grok
             ├── Chat.jsx           ← chat streaming avec Grok
             ├── StockAnalyse.jsx   ← fiche action (fondamentaux + graphiques + chat streaming contextualisé)
-            ├── Onboarding.jsx     ← questionnaire 5 étapes (accessible depuis Welcome)
+            ├── Onboarding.jsx     ← questionnaire 6 étapes dont import snapshot (accessible depuis Welcome)
             └── Settings.jsx       ← paramètres profil investisseur + assistant fiscal 3916
 ```
 
@@ -356,10 +356,12 @@ created_at TEXT DEFAULT (datetime('now'))
 | GET | `/api/actifs?env=PEA` | Actifs enrichis + stats + coeur/satellite |
 | GET | `/api/actifs/all` | Tous les actifs toutes enveloppes |
 | POST | `/api/actifs` | Crée (ou fusionne si ticker existant) |
+| POST | `/api/actifs/snapshot` | Import position existante (PRU + qty directe, pas de recalcul). Enregistre `type_operation='snapshot'`. |
 | PUT | `/api/actifs/<id>` | Modifie un actif |
 | DELETE | `/api/actifs/<id>` | Supprime un actif |
 | GET | `/api/position_existante?ticker=X&env=PEA` | Vérifie si position existe |
-| GET | `/api/search?q=airbus` | Autocomplete Yahoo Finance |
+| GET | `/api/search?q=airbus` | Autocomplete Yahoo Finance (dédupliqué, places primaires préférées) |
+| GET | `/api/repartition?env=PEA` | Répartition sectorielle + géographique. Stocks via FMP, ETFs via Yahoo topHoldings. |
 
 ### Livrets
 | Méthode | Route | Description |
@@ -527,6 +529,12 @@ Règles de séparation des responsabilités du profil :
 Dans Settings.jsx, les niveaux non autorisés sont affichés **grisés et verrouillés** avec `🔒 Tomino +`,
 mais la vraie contrainte est appliquée **côté serveur** dans `save_profil()` et dans les routes Grok.
 
+### Sources de données externes
+- **Yahoo Finance** : cours (via `prices.py`), recherche ticker (`/api/search`), `topHoldings` pour la répartition sectorielle des ETFs
+- **Financial Modeling Prep (FMP)** : `sector` + `country` des actions via `GET /api/v3/profile/{ticker}`. Clé dans `FMP_API_KEY`. Utilisé uniquement dans `get_info_titre()`.
+- Stratégie répartition dans `get_info_titre()` : FMP → Yahoo assetProfile → Yahoo topHoldings (ETF)
+- Ne jamais mettre en cache un résultat vide de `get_info_titre()` — permet le retry automatique
+
 ### Frontend React
 - **Client HTTP centralisé** : toujours utiliser `api.get/post/put/del` depuis `src/api.js`
 - **Proxy Vite** : `/api/*` → `localhost:5000` — ne jamais mettre l'URL complète
@@ -540,7 +548,10 @@ mais la vraie contrainte est appliquée **côté serveur** dans `save_profil()` 
 - **JAMAIS d'émojis sur le site** : AUCUN emoji dans aucune UI (boutons, labels, modales, texte). Les émojis manquent de lisibilité sur fond sombre et en mode responsive. Remplacer par du texte simple (ex: « Gratuit » au lieu de « 🏠 Gratuit ») ou utiliser des CSS badges/icônes si nécessaire.
 - **Assistant fiscal 3916** : dans `Settings.jsx`, calcul par année fiscale via `/api/comptes-etrangers/declaration`
 - **Règle fiscale utilisée** : compte retenu si ouvert avant fin d'année et non clôturé avant le 1er janvier de l'année
-- **Portefeuille UX** : dans `Portefeuille.jsx`, les positions à quantité `0` sont masquées de la liste.
+- **Portefeuille UX** : dans `Portefeuille.jsx`, les positions à quantité `0` sont masquées de la liste. Bouton "Supprimer" dans la modale d'édition (achat uniquement, pas snapshot). Historique limité à 500 entrées.
+- **Snapshot import** : accessible depuis le panneau "Premiers pas" (portfolio vide) et depuis l'Onboarding étape 6. Utilise `POST /api/actifs/snapshot`. Badge "Position initiale" bleu dans l'historique.
+- **Répartition** : `Repartition.jsx` à `/repartition/:env`. Données via `GET /api/repartition?env=`. Stocks → FMP, ETFs → Yahoo `topHoldings.sectorWeightings` ventilé proportionnellement.
+- **Recherche ticker** : toutes les barres de recherche (ActifForm, Portefeuille inline, Portefeuille snap modal, Onboarding étape 6, Alertes, Dividendes, StockAnalyse) → Enter sans ArrowDown sélectionne le 1er résultat. Déduplication par échange (`_PRIMARY_EXCHANGES` rang 0, inconnu rang 1, `_REGIONAL_EXCHANGES` rang 2) + normalisation en boucle des suffixes légaux/ETF.
 - **Historique PEA UX** : clic sur une ligne d'historique ouvre le modal de renfort/cession en mode édition (achat **ou** vente).
 - **Livrets UX** : `Livrets.jsx` permet l'édition d'un livret existant (préremplissage + `PUT /api/livrets/<id>`).
 - **Assurance vie UX** : `AssuranceVie.jsx` permet la gestion CRUD des contrats (nom, assureur, support, versements, valeur actuelle) avec édition inline.
