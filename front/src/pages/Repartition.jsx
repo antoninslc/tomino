@@ -56,8 +56,8 @@ function DonutCard({ title, data }) {
           <p className="text-sm text-text2" style={{ marginBottom: 12 }}>
             Aucune donnée disponible pour cette enveloppe.
           </p>
-          <a
-            href="/portefeuille/PEA"
+          <NavLink
+            to="/portefeuille/PEA"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '8px 16px',
@@ -71,7 +71,7 @@ function DonutCard({ title, data }) {
             }}
           >
             Ajouter des actifs →
-          </a>
+          </NavLink>
         </div>
       ) : (
         <div className="mt-4 grid gap-4 md:grid-cols-[220px_1fr] md:items-center">
