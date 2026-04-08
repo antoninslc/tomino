@@ -1040,9 +1040,10 @@ def search_tickers(query: str) -> list:
                 continue
             if q.get("quoteType", "").upper() not in _ALLOWED_TYPES:
                 continue
+            raw_name = q.get("shortname") or q.get("longname") or ticker
             results.append({
                 "ticker": ticker,
-                "nom": q.get("shortname") or q.get("longname") or ticker,
+                "nom": raw_name.split('\t')[0].strip(),
                 "type": q.get("quoteType", ""),
                 "exchange": q.get("exchange", ""),
             })

@@ -4435,9 +4435,12 @@ def api_search():
             if item.get("quoteType", "").upper() not in ("EQUITY", "ETF", "MUTUALFUND"):
                 continue
             exchDisp = item.get("exchDisp", "")
+            raw_name = item.get("shortname") or item.get("longname") or ticker
+            # Yahoo Finance insère parfois un tab + classe d'action (ex: "Airbus SE\tA") → strip
+            clean_name = raw_name.split('\t')[0].strip()
             raw.append({
                 "symbol": ticker,
-                "name": item.get("shortname") or item.get("longname") or ticker,
+                "name": clean_name,
                 "exchange": exchDisp,
                 "type": item.get("quoteType", "").lower(),
                 "_exc": item.get("exchange", ""),
