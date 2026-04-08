@@ -14,6 +14,10 @@ La logique produit retenue est un compromis: local-first par défaut (fiabilité
 
 ## 1) À consolider avant distribution (priorité haute)
 
+Légende statuts:
+- ✅ terminé
+- 🟡 en cours (partiel)
+
 ### Fiabilité et sécurité des données
 - ✅ Export/import complet de la base via Settings (format `.tomino-backup`), avec validation d'intégrité (manifest + SHA-256 + contrôle de schéma SQLite).
 - ✅ Sauvegarde automatique locale en place (rotation: 7 sauvegardes quotidiennes + 4 hebdomadaires).
@@ -21,26 +25,26 @@ La logique produit retenue est un compromis: local-first par défaut (fiabilité
 - ✅ Erreurs critiques avec messages actionnables en place (base verrouillée, fichier corrompu, clé API absente) + affichage en modale fermable.
 - ✅ Chiffrement optionnel des sauvegardes exportées par mot de passe local (export chiffré + vérification/import avec mot de passe).
 - ✅ Moteur de synchronisation par événements en place (journal local `sync_events` + API de polling/apply + résolution de conflits horodatée type last-write-wins).
-- Chiffrer les données synchronisées côté client (chiffrement de bout en bout, clé dérivée du mot de passe utilisateur).
-- Prévoir un mode "pause de sync" et une reprise sûre sans perte de données.
+- 🟡 Chiffrer les données synchronisées côté client (chiffrement de bout en bout, clé dérivée du mot de passe utilisateur).
+- ✅ Prévoir un mode "pause de sync" et une reprise sûre sans perte de données.
 
 ### Qualité logicielle
-- Étendre la suite de tests backend (quotas IA, alertes, benchmark, onboarding, routes fiscalité).
+- 🟡 Étendre la suite de tests backend (quotas IA, alertes, benchmark, onboarding, routes fiscalité).
 - Ajouter des tests de non-régression frontend sur les flux critiques (ajout actif, édition mouvement, analyse IA, chat).
-- Ajouter un pipeline CI minimal: lint + tests backend + build frontend.
-- Ajouter une stratégie de migration base de données versionnée (script de migration à chaque changement de schéma).
+- 🟡 Ajouter un pipeline CI minimal: lint + tests backend + build frontend.
+- 🟡 Ajouter une stratégie de migration base de données versionnée (script de migration à chaque changement de schéma).
 
 ### Distribution et expérience d'installation
-- Produire un installeur Windows simple (dépendances, création du `.env`, vérification ports).
-- Ajouter un mode “diagnostic” dans l'app (version, état API, état DB, état clé IA, derniers logs).
-- Documenter une procédure de mise à jour sans perte de données.
-- Préparer une expérience mobile minimale (web responsive d'abord, puis app dédiée selon traction).
+- 🟡 Produire un installeur Windows simple (dépendances, création du `.env`, vérification ports).
+- 🟡 Ajouter un mode “diagnostic” dans l'app (version, état API, état DB, état clé IA, derniers logs).
+- ✅ Documenter une procédure de mise à jour sans perte de données.
+- 🟡 Préparer une expérience mobile minimale (web responsive d'abord, puis app dédiée selon traction).
 
 ### Confiance utilisateur
 - Afficher partout une preuve claire: données locales, aucune connexion bancaire automatique.
-- Ajouter un écran "Confidentialité et sécurité" dans les paramètres.
-- Ajouter un consentement explicite pour l'usage IA et la consommation de quota.
-- Ajouter une transparence sync: date de dernière sync, nombre d'appareils connectés, taille des données synchronisées.
+- ✅ Ajouter un écran "Confidentialité et sécurité" dans les paramètres.
+- ✅ Ajouter un consentement explicite pour l'usage IA et la consommation de quota.
+- 🟡 Ajouter une transparence sync: date de dernière sync, nombre d'appareils connectés, taille des données synchronisées.
 
 ## 2) À ajouter pour augmenter la valeur perçue
 
@@ -51,13 +55,13 @@ La logique produit retenue est un compromis: local-first par défaut (fiabilité
 - Simulateur simple “et si ?” (renfort, vente partielle, impact allocation).
 
 ### UX
-- Améliorer les états vides (guidage concret, CTA pertinents).
-- Ajouter un centre de notifications (alertes déclenchées, IA indisponible, sauvegarde réussie).
-- Ajouter un onboarding “2 minutes” avec données d'exemple réinitialisables.
+- ✅ Améliorer les états vides (guidage concret, CTA pertinents).
+- 🟡 Ajouter un centre de notifications (alertes déclenchées, IA indisponible, sauvegarde réussie).
+- ✅ Ajouter un onboarding “2 minutes” avec données d'exemple réinitialisables.
 
 ### Performance
-- Ajouter pagination/virtualisation sur listes longues (mouvements, dividendes, historiques).
-- Ajouter cache côté frontend pour les routes les plus consultées, avec invalidation contrôlée.
+- 🟡 Ajouter pagination/virtualisation sur listes longues (mouvements, dividendes, historiques).
+- ✅ Ajouter cache côté frontend pour les routes les plus consultées, avec invalidation contrôlée.
 
 ### Roadmap de transition vers le multi-appareils
 - Phase 1: local-first renforcé (backup, restore, export/import, diagnostics).
@@ -210,3 +214,177 @@ Critères d'acceptation:
 - ✅ Endpoints auth/sync protégés contre abus basiques.
 - ✅ Traçabilité minimale des connexions et révocations.
 - ✅ Politique de confidentialité alignée avec le comportement réel.
+
+## 9) Backlog features priorisées (proposition)
+
+### 9.1 Ordre de livraison recommandé (impact x effort)
+
+1. Mode comparaison enveloppes (quick win).
+2. Rapport PDF (complétion et stabilisation).
+3. Allocation cible.
+4. DCA tracker.
+5. Calendrier de dividendes prévus.
+6. Estimation fiscale de vente.
+7. Import CSV brokers (chantier structurant, plus long).
+
+### 9.2 Fiches prêtes à implémenter
+
+#### F1 — Mode comparaison enveloppes (PEA vs CTO)
+Objectif:
+- Afficher côte à côte performance, allocation, TRI, dividendes, fiscalité estimée PEA/CTO.
+
+Livrables:
+- Nouvelle vue de comparaison dans `Portefeuille.jsx` ou page dédiée.
+- Cartes comparatives avec mêmes métriques, même période, mêmes formats.
+
+Critères d'acceptation:
+- Les chiffres sont cohérents avec `GET /api/actifs?env=...` et `GET /api/resume`.
+- Le mode fonctionne avec enveloppes vides (état vide clair, pas d'erreur).
+
+Tests minimaux:
+- Frontend: rendu des comparaisons avec données partielles et complètes.
+- Backend: non-régression des routes existantes appelées par la vue.
+
+#### F2 — Rapport PDF (compléter)
+Objectif:
+- Produire un PDF lisible et partageable avec synthèse patrimoniale + annexes utiles.
+
+Livrables:
+- Ajout d'une section "comparatif enveloppes" et d'un bloc "actions proposées".
+- Paramètres d'export (période, inclusion IA, niveau de détail).
+
+Critères d'acceptation:
+- Export en moins de 5 secondes sur jeu de données standard.
+- Le PDF reste lisible sur A4 et sans chevauchement de blocs.
+
+Tests minimaux:
+- Test API de génération PDF (code HTTP, taille non nulle, contenu attendu).
+- Test de non-régression sur accents/format monétaire FR.
+
+#### F3 — Allocation cible
+Objectif:
+- Permettre à l'utilisateur de définir une allocation cible et mesurer les écarts actuels.
+
+Livrables:
+- Écran de configuration cible (par classes: actions/obligations/or/cash).
+- Calcul d'écart en points et en montants avec suggestions de rééquilibrage.
+
+Critères d'acceptation:
+- Somme des cibles = 100% (validation stricte).
+- Écarts recalculés en temps réel après chaque mutation du portefeuille.
+
+Tests minimaux:
+- Backend: calcul des écarts et robustesse sur portefeuille vide.
+- Frontend: validation formulaire (somme, bornes, erreurs lisibles).
+
+#### F4 — DCA tracker
+Objectif:
+- Suivre les versements réguliers par actif et visualiser l'évolution du PRU moyen.
+
+Livrables:
+- Vue chronologique des versements (mensuel/trimestriel).
+- Graphique PRU moyen et coût cumulé dans le temps.
+
+Critères d'acceptation:
+- Les snapshots importés ne polluent pas le calcul du DCA périodique.
+- Filtrage par enveloppe et par ticker.
+
+Tests minimaux:
+- Backend: calcul PRU historique correct avec achats/ventes mixtes.
+- Frontend: rendu graphique stable sur séries courtes et longues.
+
+#### F5 — Calendrier de dividendes prévus
+Objectif:
+- Donner une visibilité sur les prochaines dates de dividendes des positions détenues.
+
+Livrables:
+- Timeline à venir (ex-date, paiement, montant estimé si disponible).
+- Filtre par mois et par enveloppe.
+
+Critères d'acceptation:
+- Les données absentes sont affichées proprement (pas de faux montant).
+- Tri chronologique fiable et timezone cohérente Europe/Paris.
+
+Tests minimaux:
+- Backend: normalisation des dates et robustesse aux valeurs manquantes.
+- Frontend: affichage des cas "incomplet" sans erreur UI.
+
+#### F6 — Estimation fiscale de vente
+Objectif:
+- Estimer l'impact fiscal d'une vente simulée (quantité/prix/date) avant exécution.
+
+Livrables:
+- Simulateur dans `Portefeuille.jsx` ou page `FiscalPage`.
+- Sortie détaillée: brut, prélèvements, net estimé, hypothèses affichées.
+
+Critères d'acceptation:
+- Distinction claire des règles PEA/CTO (notamment seuil temporel PEA).
+- Les hypothèses sont visibles (taux, date fiscale, devise).
+
+Tests minimaux:
+- Backend: scénarios de calcul fiscal (plus-value, moins-value, cas neutre).
+- Frontend: libellés explicites et validation des entrées.
+
+#### F7 — Import CSV brokers (Boursorama, Degiro, Trade Republic)
+Objectif:
+- Importer automatiquement positions et mouvements depuis des exports CSV de brokers.
+
+Livrables:
+- Pipeline d'import en 3 étapes: upload, mapping colonnes, prévisualisation avant validation.
+- Adaptateurs par broker + mode "template custom".
+- Journal d'import avec erreurs ligne par ligne.
+
+Critères d'acceptation:
+- Aucune écriture en base avant confirmation explicite utilisateur.
+- Import idempotent via détection de doublons (clé métier).
+- Rapport final: créés, fusionnés, ignorés, erreurs.
+
+Tests minimaux:
+- Backend: parse robustesse (encodage, séparateurs, colonnes manquantes).
+- Backend: déduplication et transactions atomiques.
+- Frontend: flow complet upload -> mapping -> preview -> import.
+
+## 10) Ajouts critiques à intégrer maintenant (go-live)
+
+### Résilience et continuité d'activité (PRA)
+- Définir des objectifs chiffrés: RPO et RTO cibles par scénario d'incident.
+- Documenter une procédure de restauration d'urgence pas à pas (base locale + sync cloud).
+- Planifier un exercice de restauration périodique sur machine vierge (preuve exécutable, pas seulement théorique).
+
+### Spécification chiffrement E2E de la synchronisation
+- Formaliser la dérivation de clé côté client (KDF, salt, paramètres, versionning crypto).
+- Définir la rotation de clés, la révocation d'appareil, et le comportement en cas de changement de mot de passe.
+- Définir explicitement le mode de récupération: ce qui est récupérable et ce qui ne l'est pas sans secret utilisateur.
+
+### Migrations base de données versionnées et sûres
+- Introduire un format de migration explicite (id, description, préconditions, script up/down si possible).
+- Exécuter chaque migration dans une transaction atomique avec backup préalable obligatoire.
+- Ajouter des tests automatiques de migration (N-1 -> N, rollback de sécurité, idempotence).
+
+### Sécurité de distribution desktop
+- Signer les binaires et l'installeur Windows.
+- Publier checksums (SHA-256) des artefacts de release.
+- Vérifier l'intégrité des mises à jour (canal et manifeste signés).
+
+### Observabilité minimale production
+- Standardiser des logs structurés (sans données sensibles) avec corrélation de requêtes.
+- Définir des codes d'erreur stables côté API pour faciliter le support.
+- Suivre des métriques minimales: erreurs sync, latence API, échecs fournisseurs (xAI/Yahoo/Stripe), taux de restauration réussie.
+
+### Gouvernance des données cloud
+- Définir une politique de rétention (sessions, événements sync, traces auth, journaux techniques).
+- Définir la purge lors de suppression de compte avec délai et confirmation explicite.
+- Garantir un export final utilisateur avant suppression définitive.
+
+### Mode dégradé fournisseurs externes
+- Spécifier le comportement si xAI est indisponible (message clair + retry contrôlé).
+- Spécifier le comportement si Yahoo/FMP est indisponible (données en cache + indicateur de fraîcheur).
+- Spécifier le comportement si Stripe est indisponible (pas de blocage du local-first, reprise différée de la facturation).
+
+## 11) Priorisation d'exécution immédiate (ordre recommandé)
+
+1. Spécification chiffrement E2E de la synchronisation.
+2. Migrations base de données versionnées + tests de migration.
+3. Signature des builds + checksums de release.
+4. PRA avec exercices de restauration testés.
+5. Observabilité minimale et codes d'erreur API stables.

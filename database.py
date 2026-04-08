@@ -34,7 +34,7 @@ DEFAULT_PROFIL = {
     "secteurs_exclus": [],
     "pays_exclus": [],
     "benchmark": "CW8.PA",
-    "tier": "free",          # "free" | "tomino_plus"
+    "tier": "tomino_plus",    # "free" | "tomino_plus" — tomino_plus par défaut (pas de monétisation)
     "is_demo": 0,
 }
 
@@ -520,14 +520,20 @@ def init_db():
             secteurs_exclus TEXT DEFAULT '[]',
             pays_exclus TEXT DEFAULT '[]',
             benchmark TEXT DEFAULT 'CW8.PA',
-            tier TEXT DEFAULT 'free',
+            tier TEXT DEFAULT 'tomino_plus',
             is_demo INTEGER DEFAULT 0
         )
     """)
 
     # Migration : ajout colonne tier si absente (bases existantes)
     try:
-        c.execute("ALTER TABLE profil ADD COLUMN tier TEXT DEFAULT 'free'")
+        c.execute("ALTER TABLE profil ADD COLUMN tier TEXT DEFAULT 'tomino_plus'")
+    except Exception:
+        pass
+
+    # Migration : passer tous les profils free → tomino_plus (pas de monétisation)
+    try:
+        c.execute("UPDATE profil SET tier = 'tomino_plus' WHERE tier = 'free' OR tier IS NULL")
     except Exception:
         pass
 

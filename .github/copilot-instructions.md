@@ -510,6 +510,8 @@ created_at TEXT DEFAULT (datetime('now'))
 Grok ne se présente jamais comme un conseiller financier. Il apporte un **regard extérieur**.
 Chaque réponse se termine par un rappel court : regard extérieur, pas un conseil financier.
 
+**Tous les utilisateurs sont en `tomino_plus` par défaut** (pas de monétisation). La logique `free` reste dans le code pour un éventuel usage futur mais n'est pas exposée dans l'UI.
+
 | Tier | Budget/semaine | Tokens max analyse | Tokens max chat | Historique chat |
 |---|---|---|---|---|
 | `free` | 0,05 € — Ultra-compact | 512 | 400 | 4 messages |

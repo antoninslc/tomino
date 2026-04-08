@@ -935,7 +935,7 @@ export default function Settings() {
     if (syncEntryLoading) return
     const token = String(syncAuthToken || '').trim()
     if (!token) {
-      navigate('/settings/pricing')
+      navigate('/settings/sync')
       return
     }
 
@@ -948,20 +948,19 @@ export default function Settings() {
         setSyncAuthToken('')
         setSyncAuthUser(null)
         localStorage.removeItem(SYNC_AUTH_TOKEN_KEY)
-        navigate('/settings/pricing')
+        navigate('/settings/sync')
         return
       }
 
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.ok === false) {
-        navigate('/settings/pricing')
+        navigate('/settings/sync')
         return
       }
 
-      const isPlus = Boolean(payload?.subscription?.tomino_plus)
-      navigate(isPlus ? '/settings/sync' : '/settings/pricing')
+      navigate('/settings/sync')
     } catch {
-      navigate('/settings/pricing')
+      navigate('/settings/sync')
     } finally {
       setSyncEntryLoading(false)
     }
@@ -1642,11 +1641,6 @@ export default function Settings() {
                 )
               })}
             </div>
-            {isFree && (
-              <p style={{ marginTop: 8, fontSize: '.76rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
-                Le niveau Approfondi sera disponible avec un abonnement Tomino +.
-              </p>
-            )}
           </Row>
         </Section>
 
@@ -2841,35 +2835,13 @@ export default function Settings() {
             ) : (
               <>
                 <div className="card" style={{ background: 'rgba(255,255,255,.01)', marginBottom: 12 }}>
-                  <div className="card-label" style={{ marginBottom: 8 }}>Abonnement</div>
+                  <div className="card-label" style={{ marginBottom: 8 }}>Synchronisation cloud</div>
                   <div style={{ color: 'var(--text-2)', fontSize: '.84rem', lineHeight: 1.7 }}>
                     <div>
-                      Formule actuelle: <span className="td-mono">{syncSubscription?.label || syncAuthUser?.tier_label || 'Gratuit'}</span>
+                      État: <span className="td-mono">{syncAuthUser ? 'Connecté' : 'Non connecté'}</span>
                     </div>
-                    <div>
-                      État cloud: <span className="td-mono">{isTominoPlus ? 'Tomino+ actif' : 'Mode local (Gratuit)'}</span>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-                    <button type="button" className="btn btn-ghost" onClick={() => navigate('/settings/pricing')}>
-                      Gérer l'offre
-                    </button>
                   </div>
                 </div>
-
-                {!isTominoPlus && (
-                  <div className="card" style={{ background: 'rgba(201,168,76,.08)', border: '1px solid rgba(201,168,76,.35)', marginBottom: 12 }}>
-                    <div className="card-label" style={{ marginBottom: 8, color: '#f5dd9d' }}>Fonctionnalités cloud verrouillées</div>
-                    <p style={{ margin: 0, color: '#e6d6a4', fontSize: '.84rem', lineHeight: 1.65 }}>
-                      En Gratuit, votre application reste 100% locale. Passez à Tomino + pour activer la synchronisation cloud et la gestion des appareils.
-                    </p>
-                    <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-                      <button type="button" className="btn btn-ghost" onClick={() => navigate('/settings/pricing')}>
-                        Voir les tarifs
-                      </button>
-                    </div>
-                  </div>
-                )}
 
                 <div className="g2" style={{ marginBottom: 12 }}>
                   <div className="card" style={{ background: 'rgba(255,255,255,.01)' }}>
