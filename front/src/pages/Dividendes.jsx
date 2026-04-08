@@ -67,6 +67,8 @@ function DividendTooltip({ active, payload, label }) {
 
 export default function Dividendes() {
   const [payload, setPayload] = useState({ dividendes: [], stats: { total_annee: 0, total_all: 0, nb: 0, par_mois: {} } })
+  const [calendrier, setCalendrier] = useState([])
+  const [calendrierLoading, setCalendrierLoading] = useState(true)
   const [form, setForm] = useState(EMPTY_FORM)
   const [inlineEditingId, setInlineEditingId] = useState(null)
   const [inlineForm, setInlineForm] = useState(null)
@@ -144,8 +146,21 @@ export default function Dividendes() {
     }
   }
 
+  async function loadCalendrier() {
+    try {
+      setCalendrierLoading(true)
+      const data = await api.get('/dividendes/calendrier')
+      setCalendrier(Array.isArray(data?.events) ? data.events : [])
+    } catch {
+      setCalendrier([])
+    } finally {
+      setCalendrierLoading(false)
+    }
+  }
+
   useEffect(() => {
     load()
+    loadCalendrier()
   }, [])
 
   const chartData = useMemo(() => {
@@ -362,6 +377,52 @@ export default function Dividendes() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      <div className="card fade-up-3" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div className="card-label">Prochains versements</div>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>6 mois glissants</span>
+        </div>
+        {calendrierLoading ? (
+          <div style={{ color: 'var(--text-3)', fontSize: '.84rem' }}>Chargement…</div>
+        ) : calendrier.length === 0 ? (
+          <div className="empty" style={{ padding: '20px 0' }}>
+            <div className="empty-icon">📅</div>
+            <p>Aucun dividende prévu détecté sur les 6 prochains mois.</p>
+          </div>
+        ) : (
+          <div className="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date ex-div</th>
+                  <th>Paiement</th>
+                  <th>Ticker</th>
+                  <th>Nom</th>
+                  <th>Enveloppe</th>
+                  <th>Div/action</th>
+                  <th>Qté détenue</th>
+                  <th>Montant estimé</th>
+                </tr>
+              </thead>
+              <tbody>
+                {calendrier.map((ev, i) => (
+                  <tr key={`${ev.ticker}-${ev.ex_date}-${i}`}>
+                    <td className="td-mono dim">{ev.ex_date || '—'}</td>
+                    <td className="td-mono dim">{ev.payment_date || '—'}</td>
+                    <td className="td-mono">{ev.ticker}</td>
+                    <td><div className="td-name">{ev.nom || ev.ticker}</div></td>
+                    <td>{(ev.enveloppes || []).join(', ') || '—'}</td>
+                    <td className="td-mono">{ev.dividende_action != null ? `${Number(ev.dividende_action).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} €` : '—'}</td>
+                    <td className="td-mono">{ev.quantite != null ? Number(ev.quantite).toLocaleString('fr-FR', { maximumFractionDigits: 4 }) : '—'}</td>
+                    <td className="td-mono strong green">{ev.montant_estime != null ? eur(ev.montant_estime) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="card fade-up-3">

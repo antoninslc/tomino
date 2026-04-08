@@ -4057,6 +4057,36 @@ def api_dividendes_sync():
     return jsonify({"ok": True, "nouveaux": int(nouveaux)})
 
 
+@app.route("/api/dividendes/calendrier")
+def api_dividendes_calendrier():
+    actifs = db.get_actifs()
+    ticker_qty = {}
+    ticker_nom = {}
+    ticker_env = {}
+    for a in actifs:
+        t = str(a.get("ticker") or "").strip().upper()
+        if not t:
+            continue
+        qty = float(a.get("quantite") or 0)
+        if qty <= 0:
+            continue
+        ticker_qty[t] = ticker_qty.get(t, 0) + qty
+        if t not in ticker_nom:
+            ticker_nom[t] = str(a.get("nom") or t)
+        env = str(a.get("enveloppe") or "")
+        if env:
+            ticker_env.setdefault(t, [])
+            if env not in ticker_env[t]:
+                ticker_env[t].append(env)
+
+    events = prices.get_calendrier_dividendes(ticker_qty)
+    for e in events:
+        t = e.get("ticker", "")
+        e["nom"] = ticker_nom.get(t, t)
+        e["enveloppes"] = ticker_env.get(t, [])
+    return jsonify({"events": events})
+
+
 @app.route("/api/dividendes/<int:dividende_id>", methods=["DELETE"])
 def api_dividendes_delete(dividende_id):
     db.delete_dividende(dividende_id)

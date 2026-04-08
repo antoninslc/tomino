@@ -726,6 +726,102 @@ def import_dividendes_auto() -> int:
     return nouveaux
 
 
+def get_calendrier_dividendes(ticker_qty_map: dict) -> list:
+    """
+    Retourne les prochains versements de dividendes (6 mois) pour les tickers du portefeuille.
+    ticker_qty_map: {TICKER: quantite_totale}
+    Source primaire : FMP dividend calendar (1 seul appel).
+    Fallback : Yahoo Finance defaultKeyStatistics / summaryDetail.
+    """
+    import datetime as dt_mod
+
+    if not ticker_qty_map:
+        return []
+
+    today = dt_mod.date.today()
+    end = today + dt_mod.timedelta(days=180)
+    api_key = os.getenv("FMP_API_KEY", "")
+    results = []
+    found_tickers = set()
+
+    # 1. FMP dividend calendar
+    if api_key:
+        try:
+            url = f"https://financialmodelingprep.com/api/v3/stock_dividend_calendar"
+            params = {
+                "from": today.isoformat(),
+                "to": end.isoformat(),
+                "apikey": api_key,
+            }
+            r = _get_session().get(url, params=params, timeout=15)
+            if r.ok:
+                data = r.json()
+                if isinstance(data, list):
+                    tickers_upper = {t.upper() for t in ticker_qty_map}
+                    for item in data:
+                        sym = str(item.get("symbol") or "").upper()
+                        if sym not in tickers_upper:
+                            continue
+                        qty = ticker_qty_map.get(sym, 0)
+                        div_action = _safe_float(item.get("dividend"))
+                        montant_estime = round(div_action * qty, 2) if div_action and qty else None
+                        results.append({
+                            "ticker": sym,
+                            "ex_date": item.get("date") or "",
+                            "payment_date": item.get("paymentDate") or "",
+                            "record_date": item.get("recordDate") or "",
+                            "dividende_action": div_action,
+                            "quantite": qty,
+                            "montant_estime": montant_estime,
+                        })
+                        found_tickers.add(sym)
+        except Exception as e:
+            logger.warning("get_calendrier_dividendes FMP: %s", e)
+
+    # 2. Yahoo Finance fallback pour les tickers absents de FMP
+    missing = [t for t in ticker_qty_map if t.upper() not in found_tickers]
+    for ticker in missing:
+        try:
+            url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
+            r = _get_session().get(url, params={"modules": "defaultKeyStatistics,summaryDetail"}, timeout=8)
+            if not r.ok:
+                continue
+            result_list = (r.json().get("quoteSummary") or {}).get("result") or []
+            if not result_list:
+                continue
+            stats = result_list[0].get("defaultKeyStatistics") or {}
+            summary = result_list[0].get("summaryDetail") or {}
+
+            ex_raw = (stats.get("exDividendDate") or {}).get("raw") or (summary.get("exDividendDate") or {}).get("raw")
+            div_rate = _safe_float((summary.get("dividendRate") or {}).get("raw"))
+            div_freq = int((summary.get("dividendFrequency") or {}).get("raw") or 4)
+
+            if not ex_raw:
+                continue
+            ex_date_obj = dt_mod.date.fromtimestamp(int(ex_raw))
+            if ex_date_obj < today or ex_date_obj > end:
+                continue
+
+            div_action = round(div_rate / div_freq, 4) if div_rate and div_freq else None
+            qty = ticker_qty_map.get(ticker, 0)
+            montant_estime = round(div_action * qty, 2) if div_action and qty else None
+
+            results.append({
+                "ticker": ticker.upper(),
+                "ex_date": ex_date_obj.isoformat(),
+                "payment_date": "",
+                "record_date": "",
+                "dividende_action": div_action,
+                "quantite": qty,
+                "montant_estime": montant_estime,
+            })
+        except Exception as e:
+            logger.debug("get_calendrier_dividendes Yahoo(%s): %s", ticker, e)
+
+    results.sort(key=lambda x: x.get("ex_date") or "")
+    return results
+
+
 # ── STOCK PICKING ──────────────────────────────────────────
 
 # Correspondance suffixes Yahoo Finance → Alpha Vantage
