@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import {
+  Bar, BarChart, CartesianGrid, ComposedChart, Line,
+  ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
+} from 'recharts'
 
 const BASE = '/api'
 
@@ -226,6 +230,57 @@ const METRIC_INFO = {
     ],
     exemple: "L'Oréal distribue environ 60% de ses bénéfices. Une foncière (REIT) peut distribuer 90%+ car c'est leur obligation légale. Une telecom en difficulté à 120% est un signal d'alarme.",
   },
+  'price_fcf': {
+    def: "Le Price/FCF (Price to Free Cash Flow) divise la capitalisation boursière par le Free Cash Flow annuel. C'est souvent considéré comme plus fiable que le P/E car le FCF est difficile à manipuler comptablement.",
+    niveaux: [
+      { label: '< 15x', color: '#18c37e', desc: "Bon marché en termes de cash généré. L'action génère beaucoup de cash par rapport à son prix." },
+      { label: '15–25x', color: '#718095', desc: "Valorisation raisonnable pour une entreprise de qualité." },
+      { label: '> 40x', color: '#ff6b6b', desc: "Très cher. Les investisseurs paient une prime importante pour le FCF actuel." },
+    ],
+    exemple: "Microsoft se négocie souvent à 30–40x son FCF — justifié par sa croissance et la récurrence de son cloud. Une entreprise industrielle à 30x serait généralement chère.",
+  },
+  'fcf_par_action': {
+    def: "Le FCF par action est le Free Cash Flow divisé par le nombre d'actions en circulation. C'est la capacité réelle de l'entreprise à générer du cash pour chaque actionnaire, avant distribution.",
+    niveaux: [],
+    exemple: "Si une entreprise génère 2 Md€ de FCF et a 500 M actions, le FCF/action est 4 €. Si le cours est 60 €, le rendement FCF est 6,7% — très attractif.",
+  },
+  'roic': {
+    def: "Le ROIC (Return on Invested Capital) mesure la rentabilité sur le capital réellement investi dans le business (fonds propres + dette nette). C'est le ratio préféré des investisseurs professionnels car il révèle si l'entreprise crée vraiment de la valeur.",
+    niveaux: [
+      { label: '< 8%', color: '#ff6b6b', desc: "Le ROIC est inférieur au coût du capital (WACC) — l'entreprise détruit de la valeur." },
+      { label: '8–15%', color: '#718095', desc: "ROIC correct, légèrement supérieur au WACC moyen. Business viable." },
+      { label: '> 20%', color: '#18c37e', desc: "Excellent. Signe d'un avantage compétitif durable — l'entreprise crée de la valeur à grande échelle." },
+    ],
+    exemple: "LVMH, Hermès, Apple affichent des ROIC > 25%. C'est le signe d'un moat puissant. Une entreprise avec ROIC < WACC (souvent ~8–10%) détruit de la valeur même en croissant.",
+  },
+  'dette_nette_ebitda': {
+    def: "La dette nette/EBITDA mesure combien d'années de résultat brut seraient nécessaires pour rembourser la dette nette. C'est l'indicateur de levier financier le plus utilisé par les analystes crédit.",
+    niveaux: [
+      { label: '< 0x', color: '#18c37e', desc: "L'entreprise a plus de cash que de dette — position de trésorerie nette." },
+      { label: '0–2x', color: '#18c37e', desc: "Levier faible, très saine. Marge de manœuvre importante." },
+      { label: '2–4x', color: '#718095', desc: "Levier modéré, acceptable pour un secteur stable." },
+      { label: '> 5x', color: '#ff6b6b', desc: "Levier élevé. Risque financier important, surtout en période de hausse des taux." },
+    ],
+    exemple: "TotalEnergies est souvent à 0–1x (cash abondant). Les foncières peuvent être à 6–8x sans alarme car leurs actifs sont prévisibles. Une telecom à 4x est un point de vigilance.",
+  },
+  'quick_ratio': {
+    def: "Le quick ratio (ratio de liquidité immédiate) mesure la capacité à rembourser les dettes à court terme avec les actifs liquides uniquement (cash + créances), sans compter les stocks.",
+    niveaux: [
+      { label: '< 0.7', color: '#ff6b6b', desc: "Liquidité tendue. L'entreprise pourrait avoir du mal à faire face à ses obligations à court terme." },
+      { label: '0.7–1.5', color: '#718095', desc: "Satisfaisant pour la plupart des secteurs." },
+      { label: '> 2', color: '#18c37e', desc: "Très liquide. Peu de risque de liquidité à court terme." },
+    ],
+    exemple: "Une entreprise tech avec peu de stocks a souvent un quick ratio > 2. Un distributeur avec beaucoup de stocks peut avoir un current ratio de 1.5 mais un quick ratio de 0.3.",
+  },
+  'altman_z': {
+    def: "Le Z-Score d'Altman est un modèle statistique développé en 1968 par Edward Altman pour prédire la probabilité de faillite d'une entreprise dans les 2 ans. Il combine 5 ratios financiers issus du bilan et du compte de résultat.",
+    niveaux: [
+      { label: '< 1.81', color: '#ff6b6b', desc: "Zone de détresse — risque de faillite élevé dans les 2 ans." },
+      { label: '1.81 – 2.99', color: '#f6ad55', desc: "Zone grise — situation financière incertaine, surveillance recommandée." },
+      { label: '> 2.99', color: '#18c37e', desc: "Zone sûre — entreprise financièrement solide, faible risque de défaut." },
+    ],
+    exemple: "Apple dépasse souvent 10. Les entreprises en difficulté comme Bed Bath & Beyond avaient un Z-score < 1 avant leur faillite. Note : le modèle est moins fiable pour les banques et les entreprises non-industrielles.",
+  },
   'recommandation': {
     def: "La recommandation consensus est la synthèse des avis publiés par les analystes sell-side (brokers, banques) qui suivent le titre. Chaque analyste fixe un objectif de cours et une recommandation — la moyenne donne le consensus.",
     niveaux: [
@@ -337,6 +392,21 @@ function buildLiveExample(metricKey, d) {
     case 'taux_distribution':
       if (d.taux_distribution == null) return null
       return `${nom} redistribue ${p1(d.taux_distribution)} de ses bénéfices en dividendes. ${d.taux_distribution > 1 ? 'Supérieur à 100 % — non soutenable à terme, dividende potentiellement à risque.' : d.taux_distribution > 0.75 ? 'Taux élevé, peu de marge de manoeuvre pour réinvestir.' : d.taux_distribution > 0.4 ? 'Équilibre sain entre dividende et réinvestissement.' : 'Dividende prudent, l\'entreprise conserve l\'essentiel pour croître.'}`
+    case 'price_fcf':
+      if (d.price_fcf == null) return null
+      return `${nom} se négocie à ${n2(d.price_fcf)}x son Free Cash Flow annuel. ${d.price_fcf < 15 ? 'Valorisation attractive sur la base du cash généré.' : d.price_fcf < 25 ? 'Multiple raisonnable pour une entreprise de qualité.' : d.price_fcf < 40 ? 'Prime de valorisation — justifiée si la croissance est au rendez-vous.' : 'Multiple élevé : le marché anticipe une forte croissance du FCF futur.'}`
+    case 'roic':
+      if (d.roic == null) return null
+      return `${nom} affiche un ROIC de ${p1(d.roic)}. ${d.roic > 0.2 ? 'Excellent — l\'entreprise crée de la valeur bien au-dessus de son coût du capital.' : d.roic > 0.12 ? 'Bon ROIC, supérieur au coût moyen du capital.' : d.roic > 0.08 ? 'ROIC acceptable mais faible marge au-dessus du coût du capital.' : 'ROIC inférieur au coût du capital — l\'entreprise pourrait détruire de la valeur.'}`
+    case 'dette_nette_ebitda':
+      if (d.dette_nette_ebitda == null) return null
+      return `La dette nette représente ${n2(d.dette_nette_ebitda)}x l'EBITDA de ${nom}. ${d.dette_nette_ebitda < 0 ? 'Position de trésorerie nette — aucune dette, au contraire.' : d.dette_nette_ebitda < 2 ? 'Levier très faible, bilan solide.' : d.dette_nette_ebitda < 4 ? 'Levier modéré, dans la norme sectorielle.' : 'Levier élevé — surveiller la capacité de remboursement et l\'impact des taux.'}`
+    case 'quick_ratio':
+      if (d.quick_ratio == null) return null
+      return `Le quick ratio de ${nom} est ${n2(d.quick_ratio)}. ${d.quick_ratio > 1.5 ? 'Très bonne liquidité immédiate.' : d.quick_ratio > 0.7 ? 'Liquidité satisfaisante.' : 'Liquidité tendue — vérifier les échéances de dette à court terme.'}`
+    case 'altman_z':
+      if (d.altman_z == null) return null
+      return `Le Z-Score d'Altman de ${nom} est ${n2(d.altman_z)}. ${d.altman_z > 2.99 ? 'Zone sûre — risque de défaut faible.' : d.altman_z > 1.81 ? 'Zone grise — situation à surveiller.' : 'Zone de détresse financière — risque de faillite élevé.'} (Modèle Altman 1968, indicatif.)`
     case 'beta':
       if (d.beta == null) return null
       return `${nom} a un bêta de ${n2(d.beta)}. ${d.beta > 1.5 ? 'Action très volatile : elle amplifie les mouvements du marché.' : d.beta > 0.9 ? 'Comportement proche du marché global.' : 'Action défensive : amortit les corrections du marché.'}`
@@ -769,6 +839,416 @@ function FloatingChat({ stockData, open, onToggle }) {
   )
 }
 
+// ── Éligibilité PEA ────────────────────────────────────────
+
+const PEA_PAYS = new Set([
+  'France', 'Germany', 'Netherlands', 'Belgium', 'Italy', 'Spain', 'Portugal',
+  'Austria', 'Finland', 'Ireland', 'Luxembourg', 'Sweden', 'Denmark', 'Norway',
+  'Poland', 'Czech Republic', 'Hungary', 'Romania', 'Slovakia', 'Slovenia',
+  'Estonia', 'Latvia', 'Lithuania', 'Bulgaria', 'Croatia', 'Cyprus', 'Malta',
+  'Greece', 'Iceland', 'Liechtenstein',
+])
+
+const PEA_SUFFIXES = [
+  '.PA', '.DE', '.AS', '.BR', '.MI', '.MC', '.LS', '.VI', '.HE',
+  '.IR', '.LU', '.ST', '.CO', '.OL', '.WA', '.PR', '.BU',
+]
+
+function getPEAEligibility(d) {
+  if (!d) return null
+  const pays = d.pays || ''
+  const ticker = d.ticker || ''
+  const exchange = d.exchange || ''
+
+  // Éligible si pays UE/EEE connu
+  if (pays && PEA_PAYS.has(pays)) return { eligible: true, raison: `Siège social : ${pays}` }
+
+  // Éligible si suffix de bourse européenne connue
+  const suf = PEA_SUFFIXES.find(s => ticker.endsWith(s))
+  if (suf) return { eligible: true, raison: `Bourse européenne (${suf})` }
+
+  // Non éligible pour US, UK (Brexit), etc.
+  const nonEU = ['United States', 'United Kingdom', 'China', 'Japan', 'Canada', 'Australia', 'Switzerland']
+  if (nonEU.includes(pays)) return { eligible: false, raison: `Siège hors UE/EEE : ${pays}` }
+
+  return { eligible: null, raison: 'Éligibilité incertaine — vérifier auprès de votre courtier' }
+}
+
+// ── DCF interactif ─────────────────────────────────────────
+
+function DCFModel({ d }) {
+  const fcf0 = d?.fcf_ttm
+  const shares = d?.shares
+  const cours = d?.cours
+
+  const [croissance, setCroissance] = useState(8)   // % / an FCF années 1-5
+  const [wacc, setWacc] = useState(9)               // % coût du capital
+  const [tg, setTg] = useState(2.5)                 // % croissance terminale
+  const [annees, setAnnees] = useState(7)
+
+  if (!fcf0 || fcf0 <= 0 || !shares || !cours) {
+    return (
+      <div style={{ color: 'var(--text-3)', fontSize: '.82rem', fontStyle: 'italic' }}>
+        FCF positif nécessaire pour le DCF. Données indisponibles pour cette action.
+      </div>
+    )
+  }
+
+  // Calcul DCF
+  const waccD = wacc / 100
+  const tgD = tg / 100
+  const croisD = croissance / 100
+
+  let pvFcf = 0
+  for (let t = 1; t <= annees; t++) {
+    const fcfT = fcf0 * Math.pow(1 + croisD, t)
+    pvFcf += fcfT / Math.pow(1 + waccD, t)
+  }
+
+  const fcfTerminal = fcf0 * Math.pow(1 + croisD, annees) * (1 + tgD)
+  const valeurTerminale = waccD > tgD ? fcfTerminal / (waccD - tgD) : 0
+  const pvTerminale = valeurTerminale / Math.pow(1 + waccD, annees)
+
+  const valeurIntrinsecque = (pvFcf + pvTerminale) / shares
+  const margeSécurité = cours > 0 ? ((valeurIntrinsecque - cours) / cours) * 100 : 0
+  const isUnder = margeSécurité > 0
+
+  const SliderRow = ({ label, value, setValue, min, max, step, unit }) => (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '.75rem' }}>
+        <span style={{ color: 'var(--text-2)' }}>{label}</span>
+        <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 600 }}>{value}{unit}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => setValue(Number(e.target.value))}
+        style={{ width: '100%', accentColor: 'var(--green)', cursor: 'pointer' }}
+      />
+    </div>
+  )
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
+      <div>
+        <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 12 }}>Hypothèses</div>
+        <SliderRow label="Croissance FCF (an 1→N)" value={croissance} setValue={setCroissance} min={-5} max={30} step={0.5} unit="%" />
+        <SliderRow label="WACC (taux d'actualisation)" value={wacc} setValue={setWacc} min={4} max={20} step={0.25} unit="%" />
+        <SliderRow label="Croissance terminale" value={tg} setValue={setTg} min={0} max={5} step={0.25} unit="%" />
+        <SliderRow label="Durée de projection" value={annees} setValue={setAnnees} min={3} max={15} step={1} unit=" ans" />
+        <div style={{ fontSize: '.65rem', color: 'var(--text-3)', lineHeight: 1.5, marginTop: 8, fontStyle: 'italic' }}>
+          FCF de base (TTM) : {fmtMilliard(fcf0)} {d.devise} · {Number(shares / 1e6).toFixed(0)} M actions
+        </div>
+      </div>
+      <div>
+        <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 12 }}>Résultat</div>
+        <div style={{ background: 'rgba(255,255,255,.03)', borderRadius: 12, padding: '16px', border: '1px solid rgba(255,255,255,.07)' }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: '.7rem', color: 'var(--text-3)', marginBottom: 2 }}>Valeur intrinsèque estimée</div>
+            <div style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: 'var(--mono)', color: isUnder ? 'var(--green)' : 'var(--red)' }}>
+              {valeurIntrinsecque > 0 ? valeurIntrinsecque.toFixed(2) : '—'} {d.devise}
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: '.7rem', color: 'var(--text-3)', marginBottom: 2 }}>Cours actuel</div>
+            <div style={{ fontSize: '1rem', fontFamily: 'var(--mono)', color: 'var(--text)' }}>{cours.toFixed(2)} {d.devise}</div>
+          </div>
+          <div style={{ padding: '10px 12px', borderRadius: 8, background: isUnder ? 'rgba(24,195,126,0.1)' : 'rgba(255,107,107,0.1)', border: `1px solid ${isUnder ? 'rgba(24,195,126,0.3)' : 'rgba(255,107,107,0.3)'}` }}>
+            <div style={{ fontSize: '.7rem', color: 'var(--text-3)', marginBottom: 2 }}>
+              {isUnder ? 'Décote estimée (marge de sécurité)' : 'Surcote estimée'}
+            </div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--mono)', color: isUnder ? 'var(--green)' : 'var(--red)' }}>
+              {isUnder ? '+' : ''}{margeSécurité.toFixed(1)} %
+            </div>
+          </div>
+          <div style={{ marginTop: 10, fontSize: '.62rem', color: 'var(--text-3)', lineHeight: 1.5 }}>
+            PV flux : {fmtMilliard(pvFcf)} · PV terminale : {fmtMilliard(pvTerminale)}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Score global ───────────────────────────────────────────
+
+function computeScore(d) {
+  if (!d || d.source_limitee) return null
+
+  const clamp = (v, min, max) => Math.min(Math.max(v, min), max)
+  const scores = {}
+
+  // ── VALORISATION (25 pts) ──────────────────────────────
+  let valo = 0, valoCount = 0
+  if (d.pe_forward != null) {
+    // PE forward : 20 = parfait, > 40 = mauvais
+    valo += clamp((40 - d.pe_forward) / 30 * 10, 0, 10)
+    valoCount++
+  }
+  if (d.price_fcf != null) {
+    // Price/FCF : < 15 = 10pts, > 50 = 0
+    valo += clamp((50 - d.price_fcf) / 40 * 10, 0, 10)
+    valoCount++
+  }
+  if (d.ev_ebitda != null) {
+    // EV/EBITDA : < 8 = 10pts, > 25 = 0
+    valo += clamp((25 - d.ev_ebitda) / 20 * 10, 0, 10)
+    valoCount++
+  }
+  scores.valorisation = valoCount > 0 ? Math.round((valo / valoCount) * 2.5) : null
+
+  // ── RENTABILITÉ (30 pts) ────────────────────────────────
+  let rent = 0, rentCount = 0
+  if (d.roic != null) {
+    // ROIC : > 20% = 10pts, < 0 = 0
+    rent += clamp(d.roic / 0.20 * 10, 0, 10)
+    rentCount++
+  }
+  if (d.roe != null) {
+    // ROE : > 20% = 10pts
+    rent += clamp(d.roe / 0.20 * 10, 0, 10)
+    rentCount++
+  }
+  if (d.marge_nette != null) {
+    // Marge nette : > 20% = 10pts, < 0 = 0
+    rent += clamp(d.marge_nette / 0.20 * 10, 0, 10)
+    rentCount++
+  }
+  scores.rentabilite = rentCount > 0 ? Math.round((rent / rentCount) * 3) : null
+
+  // ── SANTÉ FINANCIÈRE (25 pts) ───────────────────────────
+  let sante = 0, santeCount = 0
+  if (d.dette_nette_ebitda != null) {
+    // Dette nette/EBITDA : < 0 = 10pts, > 5 = 0
+    sante += clamp((5 - d.dette_nette_ebitda) / 5 * 10, 0, 10)
+    santeCount++
+  }
+  if (d.current_ratio != null) {
+    // Current ratio : > 2 = 10pts, < 0.7 = 0
+    sante += clamp((d.current_ratio - 0.7) / 1.3 * 10, 0, 10)
+    santeCount++
+  }
+  if (d.marge_brute != null) {
+    // Marge brute : > 50% = 10pts, < 10% = 0
+    sante += clamp((d.marge_brute - 0.1) / 0.4 * 10, 0, 10)
+    santeCount++
+  }
+  scores.sante = santeCount > 0 ? Math.round((sante / santeCount) * 2.5) : null
+
+  // ── CROISSANCE (20 pts) ─────────────────────────────────
+  let crois = 0, croisCount = 0
+  if (d.croissance_ca != null) {
+    // Croissance CA : > 15% = 10pts, < -10% = 0
+    crois += clamp((d.croissance_ca + 0.1) / 0.25 * 10, 0, 10)
+    croisCount++
+  }
+  if (d.croissance_benefices != null) {
+    // Croissance bénéfices : > 15% = 10pts
+    crois += clamp((d.croissance_benefices + 0.1) / 0.25 * 10, 0, 10)
+    croisCount++
+  }
+  scores.croissance = croisCount > 0 ? Math.round((crois / croisCount) * 2) : null
+
+  const filled = Object.values(scores).filter(v => v != null)
+  if (filled.length === 0) return null
+
+  const total = filled.reduce((a, b) => a + b, 0)
+  const maxPossible = [
+    scores.valorisation != null ? 25 : 0,
+    scores.rentabilite != null ? 30 : 0,
+    scores.sante != null ? 25 : 0,
+    scores.croissance != null ? 20 : 0,
+  ].reduce((a, b) => a + b, 0)
+
+  const normalised = maxPossible > 0 ? Math.round((total / maxPossible) * 100) : null
+
+  return { total: normalised, details: scores }
+}
+
+function ScoreGauge({ score }) {
+  if (score == null) return null
+  const color = score >= 70 ? 'var(--green)' : score >= 45 ? '#f6ad55' : 'var(--red)'
+  const verdict = score >= 70 ? 'Attractif' : score >= 55 ? 'Correct' : score >= 40 ? 'Mitigé' : 'Risqué'
+  const circumference = 2 * Math.PI * 40
+  const dash = (score / 100) * circumference
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+      <div style={{ position: 'relative', width: 100, height: 100, flexShrink: 0 }}>
+        <svg width="100" height="100" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
+          <circle cx="50" cy="50" r="40" fill="none" stroke={color} strokeWidth="10"
+            strokeDasharray={`${dash} ${circumference}`}
+            strokeDashoffset={circumference / 4}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dasharray 0.6s ease' }}
+          />
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: '1.4rem', fontWeight: 700, color, fontFamily: 'var(--mono)', lineHeight: 1 }}>{score}</span>
+          <span style={{ fontSize: '.6rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>/100</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 180 }}>
+        <div style={{ fontSize: '1rem', fontWeight: 700, color, marginBottom: 6 }}>{verdict}</div>
+        <div style={{ fontSize: '.72rem', color: 'var(--text-3)', lineHeight: 1.5 }}>
+          Score composite basé sur valorisation, rentabilité, santé financière et croissance.
+          Non-indicatif d'un conseil en investissement.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ScoreDetails({ details }) {
+  const items = [
+    { key: 'valorisation', label: 'Valorisation', max: 25 },
+    { key: 'rentabilite', label: 'Rentabilité', max: 30 },
+    { key: 'sante', label: 'Santé financière', max: 25 },
+    { key: 'croissance', label: 'Croissance', max: 20 },
+  ]
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginTop: 16 }}>
+      {items.map(({ key, label, max }) => {
+        const v = details[key]
+        if (v == null) return null
+        const pct = Math.round((v / max) * 100)
+        const color = pct >= 70 ? 'var(--green)' : pct >= 45 ? '#f6ad55' : 'var(--red)'
+        return (
+          <div key={key}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3, fontSize: '.72rem' }}>
+              <span style={{ color: 'var(--text-2)' }}>{label}</span>
+              <span style={{ fontFamily: 'var(--mono)', color }}>{v}/{max}</span>
+            </div>
+            <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2, transition: 'width 0.5s ease' }} />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Historique financier ───────────────────────────────────
+
+function fmtMilliard(v) {
+  if (v == null) return null
+  const abs = Math.abs(v)
+  if (abs >= 1e9) return (v / 1e9).toFixed(1) + ' Md'
+  if (abs >= 1e6) return (v / 1e6).toFixed(0) + ' M'
+  return Number(v).toLocaleString('fr-FR')
+}
+
+function HistoTooltip({ active, payload, label, unit = '' }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{ background: 'rgba(16,18,24,.96)', border: '1px solid rgba(255,255,255,.14)', borderRadius: 10, padding: '8px 12px', fontFamily: 'var(--mono)', fontSize: '.73rem' }}>
+      <div style={{ color: 'var(--text-3)', marginBottom: 4 }}>{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ color: p.color || 'var(--text)', fontWeight: 600 }}>
+          {p.name} : {unit === '%' ? (p.value != null ? (p.value * 100).toFixed(1) + ' %' : '—') : (fmtMilliard(p.value) ?? '—')}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MiniBarChart({ data, dataKey, color, label, unit, devise }) {
+  const hasData = data?.some(d => d[dataKey] != null)
+  if (!hasData) return null
+  return (
+    <div style={{ height: 160 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+          <XAxis dataKey="annee" tick={{ fill: '#718095', fontSize: 10, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
+          <YAxis hide />
+          <RTooltip content={<HistoTooltip unit={unit} />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+          <Bar dataKey={dataKey} name={label} fill={color} radius={[4, 4, 0, 0]}
+            label={{ position: 'top', formatter: (v) => unit === '%' ? (v * 100).toFixed(0) + '%' : (fmtMilliard(v) ?? ''), fontSize: 9, fontFamily: 'var(--mono)', fill: '#718095' }}
+          />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function MargesChart({ data }) {
+  const hasData = data?.some(d => d.marge_nette != null || d.marge_operationnelle != null)
+  if (!hasData) return null
+  return (
+    <div style={{ height: 160 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+          <XAxis dataKey="annee" tick={{ fill: '#718095', fontSize: 10, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
+          <YAxis hide />
+          <RTooltip content={<HistoTooltip unit="%" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+          <Line type="monotone" dataKey="marge_brute" name="Marge brute" stroke="rgba(99,179,237,0.7)" strokeWidth={1.5} dot={{ r: 3 }} />
+          <Line type="monotone" dataKey="marge_operationnelle" name="Marge ope." stroke="#f6ad55" strokeWidth={1.5} dot={{ r: 3 }} />
+          <Line type="monotone" dataKey="marge_nette" name="Marge nette" stroke="#18c37e" strokeWidth={2} dot={{ r: 3 }} />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function SectionHistorique({ history, loading }) {
+  if (loading) {
+    return (
+      <div className="card fade-up" style={{ marginBottom: 20 }}>
+        <div className="card-label" style={{ marginBottom: 8 }}>Historique financier</div>
+        <div style={{ color: 'var(--text-3)', fontSize: '.82rem' }}>Chargement…</div>
+      </div>
+    )
+  }
+  if (!history || !history.annees?.length) return null
+
+  const chartData = history.annees.map((annee, i) => ({
+    annee,
+    ca: history.ca?.[i],
+    resultat_net: history.resultat_net?.[i],
+    fcf: history.fcf?.[i],
+    bpa: history.bpa?.[i],
+    marge_nette: history.marge_nette?.[i],
+    marge_operationnelle: history.marge_operationnelle?.[i],
+    marge_brute: history.marge_brute?.[i],
+  }))
+
+  return (
+    <div className="card fade-up" style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div className="card-label">Historique financier</div>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>5 ans · annuel · yfinance</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div>
+          <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>Chiffre d&apos;affaires</div>
+          <MiniBarChart data={chartData} dataKey="ca" color="rgba(99,179,237,0.75)" label="CA" />
+        </div>
+        <div>
+          <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>Résultat net</div>
+          <MiniBarChart data={chartData} dataKey="resultat_net" color="rgba(24,195,126,0.8)" label="Résultat net" />
+        </div>
+        <div>
+          <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>Free Cash Flow</div>
+          <MiniBarChart data={chartData} dataKey="fcf" color="rgba(246,173,85,0.8)" label="FCF" />
+        </div>
+        <div>
+          <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>Marges (%)</div>
+          <MargesChart data={chartData} />
+          <div style={{ display: 'flex', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
+            {[['rgba(99,179,237,0.7)', 'Brute'], ['#f6ad55', 'Opé.'], ['#18c37e', 'Nette']].map(([c, l]) => (
+              <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '.65rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+                <span style={{ width: 10, height: 2, background: c, borderRadius: 1, display: 'inline-block' }} />{l}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Page principale ────────────────────────────────────────
 
 export default function StockAnalyse() {
@@ -780,6 +1260,8 @@ export default function StockAnalyse() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false)
   const [ticker, setTicker] = useState(() => _store.currentTicker)
   const [data, setData] = useState(() => _store.data)
+  const [history, setHistory] = useState(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showDesc, setShowDesc] = useState(false)
@@ -814,6 +1296,20 @@ export default function StockAnalyse() {
     return () => clearTimeout(debounceRef.current)
   }, [query])
 
+  async function loadHistory(t) {
+    setHistoryLoading(true)
+    setHistory(null)
+    try {
+      const res = await fetch(`${BASE}/stock/historique/${encodeURIComponent(t)}`)
+      const json = await res.json()
+      setHistory(json.ok ? json : null)
+    } catch {
+      setHistory(null)
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   async function loadStock(t, force = false) {
     setSuggestions([])
     const isNewTicker = t !== _store.currentTicker
@@ -827,6 +1323,7 @@ export default function StockAnalyse() {
     setShowDesc(false)
     if (isNewTicker) setChatOpen(false)
     setLoading(true)
+    loadHistory(t)
     try {
       const url = force
         ? `${BASE}/stock/${encodeURIComponent(t)}?force=1`
@@ -976,9 +1473,24 @@ export default function StockAnalyse() {
           {/* Identité */}
           <div className="card fade-up" style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
-              <div>
-                <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{d.nom}</div>
-                <div style={{ fontFamily: 'var(--mono)', fontSize: '.75rem', color: 'var(--text-3)', marginTop: 4 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+                  <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--text)', lineHeight: 1.2 }}>{d.nom}</div>
+                  {(() => {
+                    const pea = getPEAEligibility(d)
+                    if (!pea) return null
+                    const bg = pea.eligible === true ? 'rgba(24,195,126,0.15)' : pea.eligible === false ? 'rgba(255,107,107,0.12)' : 'rgba(246,173,85,0.12)'
+                    const border = pea.eligible === true ? 'rgba(24,195,126,0.4)' : pea.eligible === false ? 'rgba(255,107,107,0.3)' : 'rgba(246,173,85,0.3)'
+                    const color = pea.eligible === true ? 'var(--green)' : pea.eligible === false ? 'var(--red)' : '#f6ad55'
+                    const label = pea.eligible === true ? 'PEA ✓' : pea.eligible === false ? 'Non PEA' : 'PEA ?'
+                    return (
+                      <span title={pea.raison} style={{ fontSize: '.65rem', fontFamily: 'var(--mono)', fontWeight: 600, padding: '2px 8px', borderRadius: 6, background: bg, border: `1px solid ${border}`, color, cursor: 'default', flexShrink: 0 }}>
+                        {label}
+                      </span>
+                    )
+                  })()}
+                </div>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: '.75rem', color: 'var(--text-3)', marginTop: 2 }}>
                   {d.ticker} &middot; {d.exchange} &middot; {d.devise}
                   {d.secteur && <> &middot; {tr(SECTEUR_FR, d.secteur)}</>}
                   {d.industrie && <> &middot; {tr(INDUSTRIE_FR, d.industrie)}</>}
@@ -1012,6 +1524,18 @@ export default function StockAnalyse() {
               </>
             )}
           </div>
+
+          {/* Score global */}
+          {(() => { const sc = computeScore(d); return sc ? (
+            <div className="card fade-up" style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div className="card-label">Score d&apos;investissement</div>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Indicatif · pas un conseil</span>
+              </div>
+              <ScoreGauge score={sc.total} />
+              <ScoreDetails details={sc.details} />
+            </div>
+          ) : null })()}
 
           {/* Cours & Marché */}
           <div className="g3 fade-up" style={{ marginBottom: 20 }}>
@@ -1047,6 +1571,8 @@ export default function StockAnalyse() {
             </div>
           )}
 
+          <SectionHistorique history={history} loading={historyLoading} />
+
           {!d.source_limitee && (
             <>
               {/* Valorisation */}
@@ -1062,17 +1588,31 @@ export default function StockAnalyse() {
                 </div>
               </div>
 
+              {/* Valorisation FCF */}
+              <div className="card fade-up" style={{ marginBottom: 20 }}>
+                <div className="card-label" style={{ marginBottom: 16 }}>Flux de trésorerie</div>
+                <div className="g3">
+                  <Stat label="Price / FCF" value={d.price_fcf != null ? `${n2(d.price_fcf)}x` : '—'} color={d.price_fcf != null ? (d.price_fcf < 15 ? 'var(--green)' : d.price_fcf > 40 ? 'var(--red)' : 'var(--text)') : 'var(--text)'} infoKey="price_fcf" stockData={d} />
+                  <Stat label="FCF TTM" value={d.fcf_ttm != null ? fmtGrand(d.fcf_ttm) + (d.devise ? ' ' + d.devise : '') : '—'} infoKey="price_fcf" stockData={d} />
+                  <Stat label="FCF / action" value={d.fcf_par_action != null ? `${n2(d.fcf_par_action)} ${d.devise || ''}` : '—'} infoKey="fcf_par_action" stockData={d} />
+                </div>
+              </div>
+
               {/* Santé financière */}
               <div className="card fade-up" style={{ marginBottom: 20 }}>
-                <div className="card-label" style={{ marginBottom: 16 }}>Santé financière</div>
+                <div className="card-label" style={{ marginBottom: 16 }}>Rentabilité &amp; Santé financière</div>
                 <div className="g3">
+                  <Stat label="ROIC" value={pct(d.roic)} color={d.roic != null ? (d.roic > 0.15 ? 'var(--green)' : d.roic < 0.08 ? 'var(--red)' : 'var(--text)') : 'var(--text)'} infoKey="roic" stockData={d} />
+                  <Stat label="ROE" value={pct(d.roe)} color={signColor(d.roe)} infoKey="roe" stockData={d} />
+                  <Stat label="ROA" value={pct(d.roa)} color={signColor(d.roa)} infoKey="roa" stockData={d} />
                   <Stat label="Marge nette" value={pct(d.marge_nette)} color={signColor(d.marge_nette)} infoKey="marge_nette" stockData={d} />
                   <Stat label="Marge opérationnelle" value={pct(d.marge_operationnelle)} color={signColor(d.marge_operationnelle)} infoKey="marge_operationnelle" stockData={d} />
                   <Stat label="Marge brute" value={pct(d.marge_brute)} color={signColor(d.marge_brute)} infoKey="marge_brute" stockData={d} />
-                  <Stat label="ROE" value={pct(d.roe)} color={signColor(d.roe)} infoKey="roe" stockData={d} />
-                  <Stat label="ROA" value={pct(d.roa)} color={signColor(d.roa)} infoKey="roa" stockData={d} />
+                  <Stat label="Dette nette / EBITDA" value={d.dette_nette_ebitda != null ? `${n2(d.dette_nette_ebitda)}x` : '—'} color={d.dette_nette_ebitda != null ? (d.dette_nette_ebitda < 2 ? 'var(--green)' : d.dette_nette_ebitda > 4 ? 'var(--red)' : 'var(--text)') : 'var(--text)'} infoKey="dette_nette_ebitda" stockData={d} />
                   <Stat label="Dette / Capitaux" value={val(d.dette_capitaux)} infoKey="dette_capitaux" stockData={d} />
                   <Stat label="Current ratio" value={val(d.current_ratio)} infoKey="current_ratio" stockData={d} />
+                  <Stat label="Quick ratio" value={val(d.quick_ratio)} color={d.quick_ratio != null ? (d.quick_ratio > 1 ? 'var(--green)' : d.quick_ratio < 0.7 ? 'var(--red)' : 'var(--text)') : 'var(--text)'} infoKey="quick_ratio" stockData={d} />
+                  <Stat label="Altman Z-Score" value={d.altman_z != null ? n2(d.altman_z) : '—'} color={d.altman_z != null ? (d.altman_z > 2.99 ? 'var(--green)' : d.altman_z > 1.81 ? '#f6ad55' : 'var(--red)') : 'var(--text)'} infoKey="altman_z" stockData={d} />
                   <Stat label="Croissance CA" value={pct(d.croissance_ca)} color={signColor(d.croissance_ca)} infoKey="croissance_ca" stockData={d} />
                   <Stat label="Croissance bénéfices" value={pct(d.croissance_benefices)} color={signColor(d.croissance_benefices)} infoKey="croissance_benefices" stockData={d} />
                 </div>
@@ -1086,6 +1626,15 @@ export default function StockAnalyse() {
                   <Stat label="Taux de distribution" value={pct(d.taux_distribution)} infoKey="taux_distribution" stockData={d} />
                 </div>
               )}
+
+              {/* DCF */}
+              <div className="card fade-up" style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div className="card-label">Valorisation DCF</div>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Modèle simplifié · not advice</span>
+                </div>
+                <DCFModel d={d} />
+              </div>
 
               {/* Consensus analystes */}
               <div className="card fade-up" style={{ marginBottom: 20 }}>

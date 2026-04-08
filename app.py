@@ -4260,6 +4260,15 @@ def api_stock_search():
     return jsonify(prices.search_tickers(q))
 
 
+@app.route("/api/stock/historique/<path:ticker>")
+def api_stock_historique(ticker):
+    ticker = str(ticker).strip().upper()
+    data = prices.get_stock_history(ticker)
+    if not data:
+        return jsonify({"ok": False, "erreur": "Données historiques indisponibles"}), 404
+    return jsonify({"ok": True, **data})
+
+
 @app.route("/api/stock/<path:ticker>")
 def api_stock_fundamentals(ticker):
     ticker = str(ticker).strip().upper()

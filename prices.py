@@ -1155,6 +1155,104 @@ def get_stock_fundamentals(ticker: str, force: bool = False) -> dict:
         reco_key = str(info.get("recommendationKey") or "").lower()
         nb_analystes = int(info.get("numberOfAnalystOpinions") or 0)
 
+        # ── Ratios avancés calculés depuis le bilan ──────────────
+        ticker_obj = yf.Ticker(ticker)
+
+        # FCF TTM et actions en circulation
+        fcf_ttm = _safe_float(info.get("freeCashflow"))
+        shares = _safe_float(info.get("sharesOutstanding"))
+        mktcap = _safe_float(info.get("marketCap"))
+
+        # Price/FCF
+        price_fcf = round(mktcap / fcf_ttm, 2) if (mktcap and fcf_ttm and fcf_ttm > 0) else None
+        # FCF par action
+        fcf_par_action = round(fcf_ttm / shares, 4) if (fcf_ttm and shares and shares > 0) else None
+
+        # Dette nette / EBITDA
+        ebitda_val = _safe_float(info.get("ebitda"))
+        total_debt = _safe_float(info.get("totalDebt"))
+        cash = _safe_float(info.get("totalCash"))
+        dette_nette = None
+        dette_nette_ebitda = None
+        if total_debt is not None and cash is not None:
+            dette_nette = total_debt - cash
+        if dette_nette is not None and ebitda_val and ebitda_val != 0:
+            dette_nette_ebitda = round(dette_nette / ebitda_val, 2)
+
+        # ROIC = NOPAT / Invested Capital
+        # NOPAT = EBIT × (1 - taux_impot)  |  Invested Capital = Total Actifs - Actifs Courants + Liquidités
+        roic = None
+        try:
+            bs = None
+            for attr in ("balance_sheet", "quarterly_balance_sheet"):
+                f = getattr(ticker_obj, attr, None)
+                if f is not None and not f.empty:
+                    bs = f
+                    break
+
+            if bs is not None:
+                def bs_val(*keys):
+                    for k in keys:
+                        if k in bs.index:
+                            v = _safe_float(bs.iloc[bs.index.get_loc(k), 0])
+                            if v is not None:
+                                return v
+                    return None
+
+                total_assets     = bs_val("Total Assets")
+                current_assets   = bs_val("Current Assets")
+                current_liab     = bs_val("Current Liabilities")
+                cash_bs          = bs_val("Cash And Cash Equivalents", "Cash")
+                ebit_val         = _safe_float(info.get("ebitda")) # approximation si EBIT absent
+                # Invested Capital = Total Assets - Current Liabilities - Cash
+                if total_assets and current_liab is not None and cash_bs is not None:
+                    invested_capital = total_assets - current_liab - cash_bs
+                    if invested_capital > 0:
+                        # NOPAT ≈ Résultat opérationnel × (1 - 0.25)
+                        ebit_approx = _safe_float(info.get("operatingCashflow")) or ebitda_val
+                        if ebit_approx:
+                            nopat = ebit_approx * 0.75  # taux implicite 25%
+                            roic = round(nopat / invested_capital, 4)
+        except Exception:
+            roic = None
+
+        # ── Altman Z-Score (version originale non-financières) ──
+        # Z = 1.2*X1 + 1.4*X2 + 3.3*X3 + 0.6*X4 + 1.0*X5
+        # X1 = (Actifs courants - Passifs courants) / Total actifs
+        # X2 = Résultats non distribués / Total actifs
+        # X3 = EBIT / Total actifs
+        # X4 = Valeur marché CP / Total dettes
+        # X5 = CA / Total actifs
+        altman_z = None
+        try:
+            bs2 = bs if bs is not None else None
+            if bs2 is not None:
+                def bsv(*keys):
+                    for k in keys:
+                        if k in bs2.index:
+                            v = _safe_float(bs2.iloc[bs2.index.get_loc(k), 0])
+                            if v is not None:
+                                return v
+                    return None
+
+                ta = bsv("Total Assets")
+                ca2 = bsv("Current Assets")
+                cl = bsv("Current Liabilities")
+                re = bsv("Retained Earnings")
+                td2 = bsv("Total Debt", "Long Term Debt")
+                rev_val = _safe_float(info.get("totalRevenue"))
+                ebit_z = ebitda_val  # approximation
+
+                if ta and ta > 0 and ca2 and cl and ebit_z and rev_val and mktcap:
+                    x1 = (ca2 - cl) / ta
+                    x2 = (re / ta) if re else 0
+                    x3 = ebit_z / ta
+                    x4 = mktcap / td2 if (td2 and td2 > 0) else 0
+                    x5 = rev_val / ta
+                    altman_z = round(1.2*x1 + 1.4*x2 + 3.3*x3 + 0.6*x4 + 1.0*x5, 2)
+        except Exception:
+            altman_z = None
+
         data = {
             "ticker": ticker,
             "nom": info.get("longName") or info.get("shortName") or ticker,
@@ -1170,9 +1268,10 @@ def get_stock_fundamentals(ticker: str, force: bool = False) -> dict:
             "variation_jour": variation,
             "cours_52w_haut": _safe_float(info.get("fiftyTwoWeekHigh")),
             "cours_52w_bas": _safe_float(info.get("fiftyTwoWeekLow")),
-            "capitalisation": _safe_float(info.get("marketCap")),
+            "capitalisation": mktcap,
             "volume_moyen": _safe_float(info.get("averageVolume")),
             "beta": _safe_float(info.get("beta")),
+            "shares": shares,
             "pe_trailing": _safe_float(info.get("trailingPE")),
             "pe_forward": _safe_float(info.get("forwardPE")),
             "peg": _safe_float(info.get("pegRatio") or info.get("trailingPegRatio")),
@@ -1180,6 +1279,9 @@ def get_stock_fundamentals(ticker: str, force: bool = False) -> dict:
             "ps": _safe_float(info.get("priceToSalesTrailing12Months")),
             "ev_ebitda": _safe_float(info.get("enterpriseToEbitda")),
             "ev": _safe_float(info.get("enterpriseValue")),
+            "price_fcf": price_fcf,
+            "fcf_ttm": fcf_ttm,
+            "fcf_par_action": fcf_par_action,
             "rendement_div": _safe_float(info.get("dividendYield")),
             "taux_distribution": _safe_float(info.get("payoutRatio")),
             "dividende_par_action": _safe_float(info.get("dividendRate")),
@@ -1188,13 +1290,19 @@ def get_stock_fundamentals(ticker: str, force: bool = False) -> dict:
             "marge_nette": _safe_float(info.get("profitMargins")),
             "roe": _safe_float(info.get("returnOnEquity")),
             "roa": _safe_float(info.get("returnOnAssets")),
+            "roic": roic,
             "dette_capitaux": _safe_float(info.get("debtToEquity")),
+            "dette_nette": dette_nette,
+            "dette_nette_ebitda": dette_nette_ebitda,
             "current_ratio": _safe_float(info.get("currentRatio")),
             "quick_ratio": _safe_float(info.get("quickRatio")),
             "croissance_ca": _safe_float(info.get("revenueGrowth")),
             "croissance_benefices": _safe_float(info.get("earningsGrowth")),
             "ca_ttm": _safe_float(info.get("totalRevenue")),
-            "ebitda": _safe_float(info.get("ebitda")),
+            "ebitda": ebitda_val,
+            "total_debt": total_debt,
+            "total_cash": cash,
+            "altman_z": altman_z,
             "objectif_moyen": _safe_float(info.get("targetMeanPrice")),
             "objectif_haut": _safe_float(info.get("targetHighPrice")),
             "objectif_bas": _safe_float(info.get("targetLowPrice")),
@@ -1253,3 +1361,115 @@ def get_stock_fundamentals(ticker: str, force: bool = False) -> dict:
     with _cache_lock:
         _cache[cache_key] = {"timestamp": now, "value": data}
     return data
+
+
+def get_stock_history(ticker: str) -> dict:
+    """
+    Historique financier annuel sur 5 ans : CA, résultat net, FCF, marges, BPA.
+    Source : yfinance income_stmt + cashflow.
+    Cache 1h.
+    """
+    import yfinance as yf
+
+    ticker = str(ticker).strip().upper()
+    cache_key = f"history_{ticker}"
+    now = time.time()
+
+    with _cache_lock:
+        entry = _cache.get(cache_key)
+        if isinstance(entry, dict) and now - entry.get("timestamp", 0) < 3600:
+            return dict(entry.get("value", {}))
+
+    try:
+        t = yf.Ticker(ticker)
+
+        fin = None
+        for attr in ("income_stmt", "financials"):
+            try:
+                f = getattr(t, attr, None)
+                if f is not None and not f.empty:
+                    fin = f
+                    break
+            except Exception:
+                pass
+
+        cf = None
+        for attr in ("cashflow", "cash_flow"):
+            try:
+                f = getattr(t, attr, None)
+                if f is not None and not f.empty:
+                    cf = f
+                    break
+            except Exception:
+                pass
+
+        if fin is None:
+            return {}
+
+        dates = list(fin.columns[:5])  # plus récent en premier
+
+        def get_row(df, *keys):
+            if df is None or df.empty:
+                return {}
+            for k in keys:
+                try:
+                    if k in df.index:
+                        return dict(df.loc[k])
+                except Exception:
+                    pass
+            return {}
+
+        revenue   = get_row(fin, "Total Revenue")
+        net_inc   = get_row(fin, "Net Income")
+        gross_prf = get_row(fin, "Gross Profit")
+        ebit      = get_row(fin, "EBIT", "Operating Income")
+        eps       = get_row(fin, "Basic EPS", "Diluted EPS")
+        ocf_row   = get_row(cf, "Operating Cash Flow") if cf is not None else {}
+        capex_row = get_row(cf, "Capital Expenditure") if cf is not None else {}
+
+        annees, ca_l, rnet_l, bpa_l = [], [], [], []
+        ocf_l, fcf_l, capex_l = [], [], []
+        mn_l, mo_l, mb_l = [], [], []
+
+        for d in reversed(dates):
+            rev = _safe_float(revenue.get(d))
+            net = _safe_float(net_inc.get(d))
+            gp  = _safe_float(gross_prf.get(d))
+            op  = _safe_float(ebit.get(d))
+            e   = _safe_float(eps.get(d))
+            o   = _safe_float(ocf_row.get(d))
+            cap = _safe_float(capex_row.get(d))
+            # capex est négatif dans yfinance → FCF = OCF + capex
+            fcf = (o + cap) if (o is not None and cap is not None) else o
+
+            annees.append(str(d.year))
+            ca_l.append(rev)
+            rnet_l.append(net)
+            bpa_l.append(e)
+            ocf_l.append(o)
+            fcf_l.append(fcf)
+            capex_l.append(abs(cap) if cap is not None else None)
+            mn_l.append(round(net / rev, 4) if rev and net is not None else None)
+            mo_l.append(round(op  / rev, 4) if rev and op  is not None else None)
+            mb_l.append(round(gp  / rev, 4) if rev and gp  is not None else None)
+
+        result = {
+            "annees": annees,
+            "ca": ca_l,
+            "resultat_net": rnet_l,
+            "bpa": bpa_l,
+            "ocf": ocf_l,
+            "fcf": fcf_l,
+            "capex": capex_l,
+            "marge_nette": mn_l,
+            "marge_operationnelle": mo_l,
+            "marge_brute": mb_l,
+        }
+
+        with _cache_lock:
+            _cache[cache_key] = {"timestamp": now, "value": result}
+        return result
+
+    except Exception as e:
+        logger.warning("get_stock_history(%s): %s", ticker, e)
+        return {}
