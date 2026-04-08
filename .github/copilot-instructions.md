@@ -7,11 +7,15 @@
 
 ## Vision produit
 
-Tomino est un outil de **supervision de patrimoine financier personnel**.
+Tomino est un outil de **supervision de patrimoine financier personnel**, conçu pour usage personnel et partage avec des proches.
+- Outil gratuit — pas de monétisation prévue pour le moment
+- Distribution via installeur desktop (Tauri/Windows) ou partage du code source
 - L'IA (Grok) est additionnelle, jamais obligatoire
 - Pas de connexion bancaire automatique — saisie manuelle uniquement
 - Données 100% locales (SQLite sur le PC de l'utilisateur)
 - Cible : investisseurs autonomes français (PEA, CTO, Or, Livrets)
+
+> **Note sur Stripe/billing** : l'infrastructure de paiement est présente dans le code mais inactive par défaut (`TOMINO_BILLING_PROVIDER=local`). Ne pas développer ni entretenir cette partie sauf décision explicite de monétisation.
 
 ---
 
@@ -802,10 +806,15 @@ Affiché quand une enveloppe est vide. Structure :
 
 ---
 
-## Prochaines features prévues
+## Prochaines features envisagées
 
 - [x] **Export PDF** patrimonial (résumé + allocation + performances + positions + dernier commentaire IA)
-- [ ] **Migration SaaS** : SQLite → PostgreSQL, ajout auth (Flask-Login ou Supabase), Stripe
+- [ ] **Import CSV broker** — importer l'historique depuis Boursorama, Degiro, Trade Republic
+- [ ] **DCA tracker** — suivre les versements réguliers et visualiser l'évolution du PRU
+- [ ] **Allocation cible** — définir une allocation cible et voir l'écart actuel
+- [ ] **Calendrier de dividendes prévus** — dates ex-dividende à venir pour ses positions
+- [ ] **Notes par position** — champ libre "pourquoi j'ai acheté / objectif de prix"
+- [ ] **Faciliter le partage** — installeur simplifié, tier `tomino_plus` par défaut pour les proches
 
 ## Références internes
 - Catalogue services tiers recommandé : `.github/services.md`
