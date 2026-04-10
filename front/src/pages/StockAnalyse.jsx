@@ -333,8 +333,32 @@ const METRIC_INFO = {
   },
 }
 
-// ── Persistance inter-navigation ───────────────────────────
-const _store = { data: null, chatMessages: [], currentTicker: '' }
+// ── Persistance inter-navigation + localStorage ────────────
+const _LS_KEY = 'tomino_stock_last'
+
+function _lsLoad() {
+  try {
+    const raw = localStorage.getItem(_LS_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw)
+  } catch { return {} }
+}
+
+function _lsSave(patch) {
+  try {
+    const prev = _lsLoad()
+    localStorage.setItem(_LS_KEY, JSON.stringify({ ...prev, ...patch }))
+  } catch {}
+}
+
+const _lsInit = _lsLoad()
+const _store = {
+  data:           _lsInit.data           ?? null,
+  chatMessages:   [],
+  currentTicker:  _lsInit.currentTicker  ?? '',
+  history:        _lsInit.history        ?? null,
+  memo:           _lsInit.memo           ?? null,
+}
 
 // ── Formatters ─────────────────────────────────────────────
 const fmtEur = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 })
@@ -1595,13 +1619,13 @@ export default function StockAnalyse() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false)
   const [ticker, setTicker] = useState(() => _store.currentTicker)
   const [data, setData] = useState(() => _store.data)
-  const [history, setHistory] = useState(null)
+  const [history, setHistory] = useState(() => _store.history)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showDesc, setShowDesc] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
-  const [memo, setMemo] = useState(null)
+  const [memo, setMemo] = useState(() => _store.memo)
   const [memoLoading, setMemoLoading] = useState(false)
   const [memoError, setMemoError] = useState('')
   const suggestRef = useRef(null)
@@ -1609,7 +1633,18 @@ export default function StockAnalyse() {
 
   useEffect(() => {
     _store.data = data
+    if (data) _lsSave({ data })
   }, [data])
+
+  useEffect(() => {
+    _store.history = history
+    if (history) _lsSave({ history })
+  }, [history])
+
+  useEffect(() => {
+    _store.memo = memo
+    if (memo) _lsSave({ memo })
+  }, [memo])
 
   useEffect(() => {
     function onDown(e) {
@@ -1675,6 +1710,7 @@ export default function StockAnalyse() {
     if (isNewTicker) {
       _store.chatMessages = []
       _store.currentTicker = t
+      _lsSave({ currentTicker: t, data: null, history: null, memo: null })
     }
     setTicker(t)
     setData(null)
