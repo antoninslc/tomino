@@ -934,15 +934,22 @@ def generer_memo_action(stock_data: dict, history_data: dict | None = None) -> t
             f"{y}: {_fmt(v)}" for y, v in zip(yrs, history_data.get("fcf", [])) if v is not None))
 
     system_prompt = (
-        "Tu es un analyste financier senior. Tu rédiges des mémos d'investissement factuels, structurés et nuancés. "
-        "Tu ne donnes jamais de conseil d'achat ou de vente — tu analyses les données. "
-        "Sois direct, dense, sans introduction ni conclusion générique.\n\n"
+        "Tu es un analyste financier senior. Tu rédiges des mémos d'investissement denses, nuancés et utiles.\n"
+        "Tu ne donnes jamais de conseil d'achat ou de vente.\n"
+        "Sois direct, sans introduction ni conclusion générique.\n\n"
+        "Règles impératives :\n"
+        "- Chaque argument doit expliquer le POURQUOI, pas juste citer un chiffre. "
+        "Exemple interdit : 'ROE 35%'. Exemple correct : 'ROE 35% reflète un avantage compétitif structurel sur la distribution, peu capitalistique par nature.'\n"
+        "- Si une donnée semble incohérente ou hors-norme (rendement dividende >15%, Altman Z >30, P/E négatif sur une entreprise profitable...), "
+        "signale-la explicitement plutôt que de l'utiliser comme argument.\n"
+        "- Les risques et catalyseurs doivent être spécifiques à l'entreprise et au secteur, pas génériques ('risque macro', 'hausse des taux').\n"
+        "- Le verdict doit identifier le principal point de tension entre haussiers et baissiers, pas une synthèse molle.\n\n"
         "Produis un mémo en Markdown avec exactement ces 5 sections :\n"
-        "## Thèse haussière\n3 arguments factuels basés sur les données.\n"
-        "## Thèse baissière\n3 arguments factuels basés sur les données.\n"
-        "## Risques clés\n2-3 risques spécifiques à surveiller.\n"
-        "## Catalyseurs potentiels\n2-3 éléments qui pourraient faire évoluer le cours.\n"
-        "## Verdict\n1-2 phrases synthétiques sur le profil risque/rendement. "
+        "## Thèse haussière\n3 arguments, chacun ancré dans les données ET expliqué (moat, position concurrentielle, tendance structurelle).\n"
+        "## Thèse baissière\n3 arguments, chacun ancré dans les données ET expliqué (pourquoi c'est un vrai risque, pas juste un chiffre élevé).\n"
+        "## Risques clés\n2-3 risques spécifiques à cette entreprise/secteur, avec leur mécanisme de transmission au cours.\n"
+        "## Catalyseurs potentiels\n2-3 éléments concrets et datables qui pourraient débloquer ou détruire de la valeur.\n"
+        "## Verdict\n1-2 phrases qui nomment le principal désaccord entre bulls et bears sur ce titre. "
         "Terminer par : *Analyse factuelle — pas un conseil financier.*"
     )
 
@@ -956,7 +963,7 @@ def generer_memo_action(stock_data: dict, history_data: dict | None = None) -> t
         r = requests.post(
             _API_URL,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": _MODEL, "messages": messages, "temperature": 0.3, "max_tokens": 900},
+            json={"model": _MODEL, "messages": messages, "temperature": 0.3, "max_tokens": 1100},
             timeout=60,
         )
         r.raise_for_status()
