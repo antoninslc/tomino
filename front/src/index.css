@@ -505,6 +505,57 @@ a {
 	white-space: pre-wrap;
 }
 
+/* ── Memo Grok ─────────────────────────────────────────── */
+.grok-memo {
+	font-size: .84rem;
+	line-height: 1.75;
+	color: var(--text-2);
+}
+
+.grok-memo h2 {
+	font-family: var(--mono);
+	font-size: .65rem;
+	font-weight: 700;
+	letter-spacing: .14em;
+	text-transform: uppercase;
+	color: var(--green);
+	margin: 1.4em 0 .6em;
+	padding-bottom: .35em;
+	border-bottom: 1px solid rgba(24, 195, 126, .15);
+}
+
+.grok-memo h2:first-child {
+	margin-top: 0;
+}
+
+.grok-memo p {
+	margin: 0 0 .55em;
+}
+
+.grok-memo ul,
+.grok-memo ol {
+	margin: 0 0 .55em;
+	padding-left: 1.2rem;
+}
+
+.grok-memo li {
+	margin-bottom: .3em;
+}
+
+.grok-memo strong {
+	color: var(--text);
+	font-weight: 600;
+}
+
+.grok-memo em {
+	color: var(--text-3);
+	font-style: italic;
+}
+
+.grok-memo > :last-child {
+	margin-bottom: 0;
+}
+
 .analyse-loading {
 	display: flex;
 	align-items: center;

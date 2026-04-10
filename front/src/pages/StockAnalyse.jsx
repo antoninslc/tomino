@@ -939,40 +939,28 @@ function DCFSensitivity({ fcf0, shares, cours, waccBase, croisBase, tgBase, anne
   return (
     <div style={{ marginTop: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
-          Sensibilite DCF — Valeur intrinseque ({devise})
+        <div className="card-label" style={{ marginBottom: 0 }}>
+          Sensibilite — Valeur intrinseque ({devise})
         </div>
         <button
           type="button"
           onClick={() => setInfoOpen(true)}
-          aria-label="En savoir plus sur la sensibilite DCF"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '.8rem', padding: '0 2px', lineHeight: 1 }}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'rgba(255,255,255,0.25)', padding: '0 2px', fontSize: '.88rem', lineHeight: 1,
+            transition: 'color .15s', flexShrink: 0,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--green)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
         >&#9432;</button>
-        {infoOpen && createPortal(
-          <div
-            role="dialog"
-            aria-modal="true"
-            style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', padding: 20 }}
-            onClick={() => setInfoOpen(false)}
-          >
-            <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, maxWidth: 480, width: '100%' }}>
-              <div style={{ fontWeight: 700, marginBottom: 12 }}>Sensibilite DCF</div>
-              <p style={{ fontSize: '.85rem', color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 10 }}>
-                {METRIC_INFO['dcf_sensitivity'].def}
-              </p>
-              {METRIC_INFO['dcf_sensitivity'].niveaux.map(n => (
-                <div key={n.label} style={{ marginBottom: 8 }}>
-                  <span style={{ fontWeight: 600, color: n.color, fontSize: '.8rem' }}>{n.label} : </span>
-                  <span style={{ fontSize: '.8rem', color: 'var(--text-2)' }}>{n.desc}</span>
-                </div>
-              ))}
-              <p style={{ fontSize: '.75rem', color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic' }}>
-                {METRIC_INFO['dcf_sensitivity'].exemple}
-              </p>
-              <button type="button" onClick={() => setInfoOpen(false)} style={{ marginTop: 16, background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text)', padding: '6px 16px', cursor: 'pointer', fontSize: '.8rem' }}>Fermer</button>
-            </div>
-          </div>,
-          document.body
+        {infoOpen && (
+          <MetricModal
+            label="Sensibilite DCF"
+            info={METRIC_INFO['dcf_sensitivity']}
+            metricKey="dcf_sensitivity"
+            stockData={null}
+            onClose={() => setInfoOpen(false)}
+          />
         )}
       </div>
       <div style={{ overflowX: 'auto' }}>
@@ -1268,34 +1256,22 @@ function SectorComparison({ d }) {
           <button
             type="button"
             onClick={() => setInfoOpen(true)}
-            aria-label="En savoir plus"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '.8rem', padding: '0 2px', lineHeight: 1 }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'rgba(255,255,255,0.25)', padding: '0 2px', fontSize: '.88rem', lineHeight: 1,
+              transition: 'color .15s', flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--green)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
           >&#9432;</button>
-          {infoOpen && createPortal(
-            <div
-              role="dialog"
-              aria-modal="true"
-              style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', padding: 20 }}
-              onClick={() => setInfoOpen(false)}
-            >
-              <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, maxWidth: 480, width: '100%' }}>
-                <div style={{ fontWeight: 700, marginBottom: 12 }}>Comparaison sectorielle</div>
-                <p style={{ fontSize: '.85rem', color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 10 }}>
-                  {METRIC_INFO['sector_comparison'].def}
-                </p>
-                {METRIC_INFO['sector_comparison'].niveaux.map(n => (
-                  <div key={n.label} style={{ marginBottom: 8 }}>
-                    <span style={{ fontWeight: 600, color: n.color, fontSize: '.8rem' }}>{n.label} : </span>
-                    <span style={{ fontSize: '.8rem', color: 'var(--text-2)' }}>{n.desc}</span>
-                  </div>
-                ))}
-                <p style={{ fontSize: '.75rem', color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic' }}>
-                  {METRIC_INFO['sector_comparison'].exemple}
-                </p>
-                <button type="button" onClick={() => setInfoOpen(false)} style={{ marginTop: 16, background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text)', padding: '6px 16px', cursor: 'pointer', fontSize: '.8rem' }}>Fermer</button>
-              </div>
-            </div>,
-            document.body
+          {infoOpen && (
+            <MetricModal
+              label="Comparaison sectorielle"
+              info={METRIC_INFO['sector_comparison']}
+              metricKey="sector_comparison"
+              stockData={d}
+              onClose={() => setInfoOpen(false)}
+            />
           )}
         </div>
         <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>vs mediane {secteurFr}</span>
@@ -1349,28 +1325,22 @@ function MemoGrok({ memo, loading, error, onRetry }) {
           <button
             type="button"
             onClick={() => setInfoOpen(true)}
-            aria-label="En savoir plus sur le memo Grok"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '.8rem', padding: '0 2px', lineHeight: 1 }}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'rgba(255,255,255,0.25)', padding: '0 2px', fontSize: '.88rem', lineHeight: 1,
+              transition: 'color .15s', flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--green)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
           >&#9432;</button>
-          {infoOpen && createPortal(
-            <div
-              role="dialog"
-              aria-modal="true"
-              style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', padding: 20 }}
-              onClick={() => setInfoOpen(false)}
-            >
-              <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, maxWidth: 480, width: '100%' }}>
-                <div style={{ fontWeight: 700, marginBottom: 12 }}>Memo Grok</div>
-                <p style={{ fontSize: '.85rem', color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 10 }}>
-                  {METRIC_INFO['memo_grok'].def}
-                </p>
-                <p style={{ fontSize: '.75rem', color: 'var(--text-3)', fontStyle: 'italic' }}>
-                  {METRIC_INFO['memo_grok'].exemple}
-                </p>
-                <button type="button" onClick={() => setInfoOpen(false)} style={{ marginTop: 16, background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text)', padding: '6px 16px', cursor: 'pointer', fontSize: '.8rem' }}>Fermer</button>
-              </div>
-            </div>,
-            document.body
+          {infoOpen && (
+            <MetricModal
+              label="Memo Grok"
+              info={METRIC_INFO['memo_grok']}
+              metricKey="memo_grok"
+              stockData={null}
+              onClose={() => setInfoOpen(false)}
+            />
           )}
         </div>
         <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Analyse factuelle · pas un conseil</span>
@@ -1398,7 +1368,6 @@ function MemoGrok({ memo, loading, error, onRetry }) {
       {htmlContent && !loading && (
         <div
           className="grok-memo"
-          style={{ fontSize: '.83rem', lineHeight: 1.75, color: 'var(--text-2)' }}
           dangerouslySetInnerHTML={{ __html: htmlContent }}
         />
       )}
