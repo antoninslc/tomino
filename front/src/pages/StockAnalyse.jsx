@@ -1318,10 +1318,18 @@ function MemoGrok({ memo, loading, error, onRetry }) {
     : null
 
   return (
-    <div className="card fade-up" style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
+    <div className="card fade-up" style={{
+      marginBottom: 20,
+      border: '1px solid rgba(24,195,126,0.26)',
+      background: 'linear-gradient(180deg, rgba(24,195,126,0.07) 0%, rgba(24,195,126,0.02) 100%)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div className="card-label" style={{ marginBottom: 0 }}>Memo Grok</div>
+          <span style={{
+            fontFamily: 'var(--mono)', fontSize: '.58rem', fontWeight: 700,
+            letterSpacing: '.18em', textTransform: 'uppercase',
+            color: 'rgba(110,231,255,0.88)',
+          }}>Tomino Intelligence</span>
           <button
             type="button"
             onClick={() => setInfoOpen(true)}
@@ -1335,7 +1343,7 @@ function MemoGrok({ memo, loading, error, onRetry }) {
           >&#9432;</button>
           {infoOpen && (
             <MetricModal
-              label="Memo Grok"
+              label="Tomino Intelligence"
               info={METRIC_INFO['memo_grok']}
               metricKey="memo_grok"
               stockData={null}
