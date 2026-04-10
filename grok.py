@@ -620,7 +620,14 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
     yield {"__usage__": usage_total}
 
 
-def stock_chat_stream(historique_messages: list, stock_data: dict, tier: str = "free", conv_id: str | None = None):
+def stock_chat_stream(
+    historique_messages: list,
+    stock_data: dict,
+    history_data: dict | None = None,
+    investment_score: dict | None = None,
+    tier: str = "free",
+    conv_id: str | None = None,
+):
     """
     Chat en streaming contextualisé sur une action.
     stock_data : dict retourné par prices.get_stock_fundamentals()
@@ -653,6 +660,91 @@ def stock_chat_stream(historique_messages: list, stock_data: dict, tier: str = "
         if v >= 1e6:  return f"{v/1e6:.0f} M"
         return str(v)
 
+    anomalies = []
+
+    def _num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    def _check_range(label, key, min_v=None, max_v=None):
+        val_n = _num(stock_data.get(key))
+        if val_n is None:
+            return
+        if min_v is not None and val_n < min_v:
+            anomalies.append(f"{label}: {val_n} hors plage ({min_v} .. {max_v if max_v is not None else '∞'})")
+            return
+        if max_v is not None and val_n > max_v:
+            anomalies.append(f"{label}: {val_n} hors plage ({min_v if min_v is not None else '-∞'} .. {max_v})")
+
+    _check_range("variation_jour", "variation_jour", -0.8, 0.8)
+    _check_range("marge_brute", "marge_brute", -0.5, 1.0)
+    _check_range("marge_operationnelle", "marge_operationnelle", -0.5, 0.8)
+    _check_range("marge_nette", "marge_nette", -0.8, 0.6)
+    _check_range("roe", "roe", -2.0, 3.0)
+    _check_range("roa", "roa", -1.0, 1.0)
+    _check_range("roic", "roic", -1.0, 1.0)
+    _check_range("croissance_ca", "croissance_ca", -0.9, 5.0)
+    _check_range("croissance_benefices", "croissance_benefices", -0.99, 10.0)
+    _check_range("rendement_div", "rendement_div", 0.0, 0.5)
+    _check_range("taux_distribution", "taux_distribution", 0.0, 3.0)
+    _check_range("beta", "beta", -2.0, 8.0)
+    _check_range("current_ratio", "current_ratio", 0.0, 20.0)
+    _check_range("quick_ratio", "quick_ratio", 0.0, 20.0)
+    _check_range("altman_z", "altman_z", -10.0, 20.0)
+
+    cours = _num(stock_data.get("cours"))
+    bas_52w = _num(stock_data.get("cours_52w_bas"))
+    haut_52w = _num(stock_data.get("cours_52w_haut"))
+    if cours is not None and bas_52w is not None and haut_52w is not None:
+        if haut_52w < bas_52w:
+            anomalies.append("Incohérence 52 semaines: le haut est inférieur au bas")
+        if cours < 0:
+            anomalies.append("Cours négatif impossible")
+
+    score_block = ""
+    if isinstance(investment_score, dict) and investment_score:
+        total = investment_score.get("total")
+        details = investment_score.get("details") if isinstance(investment_score.get("details"), dict) else {}
+        score_block = (
+            "\n\nSCORE D'INVESTISSEMENT TOMINO (calcul front)\n"
+            f"Score global: {total if total is not None else 'N/D'}/100\n"
+            f"Valorisation: {details.get('valorisation', 'N/D')}/25 | "
+            f"Rentabilité: {details.get('rentabilite', 'N/D')}/30 | "
+            f"Santé financière: {details.get('sante', 'N/D')}/25 | "
+            f"Croissance: {details.get('croissance', 'N/D')}/20\n"
+            "Tu dois critiquer ce score: dire s'il est cohérent avec les métriques brutes, "
+            "où il peut sur/sous-pondérer, et proposer une note corrigée argumentée si nécessaire."
+        )
+
+    anomalies_block = "\n".join(f"- {a}" for a in anomalies) if anomalies else "- Aucune anomalie évidente détectée par les règles heuristiques"
+
+    history_block = ""
+    if isinstance(history_data, dict):
+        annees = history_data.get("annees") or []
+        if isinstance(annees, list) and annees:
+            def hist_val(key, idx):
+                arr = history_data.get(key) or []
+                if not isinstance(arr, list) or idx >= len(arr):
+                    return None
+                return arr[idx]
+
+            lignes_hist = []
+            start_idx = max(0, len(annees) - 5)
+            for i in range(start_idx, len(annees)):
+                annee = annees[i]
+                ca = hist_val("ca", i)
+                rn = hist_val("resultat_net", i)
+                fcf = hist_val("fcf", i)
+                mn = hist_val("marge_nette", i)
+                lignes_hist.append(
+                    f"{annee}: CA {eur_m(ca)} | RN {eur_m(rn)} | FCF {eur_m(fcf)} | Marge nette {pct(mn)}"
+                )
+
+            if lignes_hist:
+                history_block = "\n\nHISTORIQUE FINANCIER (5 ans)\n" + "\n".join(lignes_hist)
+
     context = f"""Tu es un assistant d'analyse boursière intégré à Tomino, application de gestion de patrimoine.
 Tu analyses l'action suivante et tu réponds aux questions de l'utilisateur à son sujet.
 Ton : {"décontracté mais précis" if ton == "informel" else "professionnel et rigoureux"}.
@@ -662,22 +754,26 @@ Style : {"détaillé avec explications" if style == "detaille" else "synthétiqu
 Secteur : {stock_data.get("secteur") or "N/D"} | Industrie : {stock_data.get("industrie") or "N/D"} | Pays : {stock_data.get("pays") or "N/D"}
 Cours actuel : {val(stock_data.get("cours"))} {stock_data.get("devise","")} | Variation jour : {pct(stock_data.get("variation_jour"))}
 52 semaines — Haut : {val(stock_data.get("cours_52w_haut"))} | Bas : {val(stock_data.get("cours_52w_bas"))}
-Capitalisation : {eur_m(stock_data.get("capitalisation"))} | Bêta : {val(stock_data.get("beta"))}
+Capitalisation : {eur_m(stock_data.get("capitalisation"))} | Bêta : {val(stock_data.get("beta"))} | Volume moyen : {eur_m(stock_data.get("volume_moyen"))}
 
 VALORISATION
 P/E trailing : {val(stock_data.get("pe_trailing"))} | P/E forward : {val(stock_data.get("pe_forward"))}
 P/B : {val(stock_data.get("pb"))} | P/S : {val(stock_data.get("ps"))} | EV/EBITDA : {val(stock_data.get("ev_ebitda"))} | PEG : {val(stock_data.get("peg"))}
 
+FLUX DE TRÉSORERIE
+Price/FCF : {val(stock_data.get("price_fcf"))} | FCF TTM : {eur_m(stock_data.get("fcf_ttm"))} | FCF/action : {val(stock_data.get("fcf_par_action"))}
+
 SANTÉ FINANCIÈRE
-Marge nette : {pct(stock_data.get("marge_nette"))} | Marge opérationnelle : {pct(stock_data.get("marge_operationnelle"))}
-ROE : {pct(stock_data.get("roe"))} | ROA : {pct(stock_data.get("roa"))}
-Dette/Capitaux : {val(stock_data.get("dette_capitaux"))} | Current ratio : {val(stock_data.get("current_ratio"))}
+Marge brute : {pct(stock_data.get("marge_brute"))} | Marge nette : {pct(stock_data.get("marge_nette"))} | Marge opérationnelle : {pct(stock_data.get("marge_operationnelle"))}
+ROIC : {pct(stock_data.get("roic"))} | ROE : {pct(stock_data.get("roe"))} | ROA : {pct(stock_data.get("roa"))}
+Dette/Capitaux : {val(stock_data.get("dette_capitaux"))} | Dette nette/EBITDA : {val(stock_data.get("dette_nette_ebitda"))}
+Current ratio : {val(stock_data.get("current_ratio"))} | Quick ratio : {val(stock_data.get("quick_ratio"))} | Altman Z-Score : {val(stock_data.get("altman_z"))}
 
 CROISSANCE
 CA (YoY) : {pct(stock_data.get("croissance_ca"))} | Bénéfices (YoY) : {pct(stock_data.get("croissance_benefices"))}
 
 DIVIDENDE
-Rendement : {pct(stock_data.get("rendement_div"))} | Taux distribution : {pct(stock_data.get("taux_distribution"))}
+Rendement : {pct(stock_data.get("rendement_div"))} | Dividende/action : {val(stock_data.get("dividende_par_action"))} | Taux distribution : {pct(stock_data.get("taux_distribution"))}
 
 CONSENSUS ANALYSTES ({stock_data.get("nb_analystes", 0)} analystes)
 Recommandation : {stock_data.get("recommandation") or "N/D"}
@@ -685,6 +781,18 @@ Objectif moyen : {val(stock_data.get("objectif_moyen"))} | Haut : {val(stock_dat
 
 PROFIL INVESTISSEUR
 Horizon : {profil.get("horizon","N/D")} | Risque : {profil.get("risque","N/D")} | Objectif : {profil.get("objectif","N/D")}
+
+DESCRIPTION ENTREPRISE
+{(stock_data.get("description") or "N/D")[:900]}
+
+{history_block}
+
+{score_block}
+
+CONTRÔLE DE COHÉRENCE (valeurs aberrantes)
+{anomalies_block}
+
+Si des valeurs semblent aberrantes, explicite pourquoi, propose une interprétation prudente et une correction plausible (ou une plage plausible), sans inventer des certitudes.
 
 Réponds aux questions sur cette action. Si l'utilisateur demande une opinion d'investissement, rappelle toujours que tu n'es pas conseiller financier et que c'est sa décision finale.
 """

@@ -1474,3 +1474,208 @@ def get_stock_history(ticker: str) -> dict:
     except Exception as e:
         logger.warning("get_stock_history(%s): %s", ticker, e)
         return {}
+
+
+# ── HISTORIQUE RÉTROACTIF ─────────────────────────────────
+
+def _fetch_historique_ticker(ticker: str, start_ts: int, end_ts: int) -> dict[str, float]:
+    """
+    Récupère les clôtures journalières d'un ticker via Yahoo Finance v8.
+    Retourne {date_str: close_price} avec forward-fill sur les jours sans cotation.
+    """
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+    params = {
+        "interval": "1d",
+        "period1": start_ts,
+        "period2": end_ts,
+        "includePrePost": "false",
+        "events": "div,splits",
+    }
+
+    def _call(u):
+        r = _get_session().get(u, params=params, timeout=20)
+        r.raise_for_status()
+        d = r.json()
+        if d.get("chart", {}).get("error"):
+            return None
+        res = d["chart"]["result"]
+        return res[0] if res else None
+
+    try:
+        result = _call(url)
+        if result is None:
+            result = _call(url.replace("query1", "query2"))
+        if result is None:
+            return {}
+
+        timestamps = result.get("timestamp", [])
+        closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+        if not timestamps or not closes:
+            return {}
+
+        # Construire le dict date → close (ignorer les None)
+        raw = {}
+        for ts, c in zip(timestamps, closes):
+            if c is not None:
+                day = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+                raw[day] = float(c)
+
+        if not raw:
+            return {}
+
+        # Forward-fill : pour chaque jour calendaire entre min et max,
+        # utiliser le dernier cours connu
+        sorted_dates = sorted(raw)
+        start_d = datetime.strptime(sorted_dates[0], "%Y-%m-%d").date()
+        end_d = datetime.utcfromtimestamp(end_ts).date()
+        filled = {}
+        last = None
+        cur = start_d
+        while cur <= end_d:
+            s = cur.strftime("%Y-%m-%d")
+            if s in raw:
+                last = raw[s]
+            if last is not None:
+                filled[s] = last
+            cur += timedelta(days=1)
+
+        return filled
+
+    except Exception as e:
+        logger.warning("_fetch_historique_ticker(%s): %s", ticker, e)
+        return {}
+
+
+def reconstruire_historique_portfolio(mouvements_par_ticker: dict) -> list[dict]:
+    """
+    Reconstruit l'historique journalier du patrimoine actions/or.
+
+    Args:
+        mouvements_par_ticker: {
+            "AAPL": {
+                "enveloppe": "PEA"|"CTO"|"OR",
+                "mouvements": [
+                    {"type_operation": "achat"|"vente"|"snapshot",
+                     "date_operation": "YYYY-MM-DD",
+                     "quantite": float,
+                     "prix_unitaire": float},
+                    ...
+                ]
+            }, ...
+        }
+
+    Returns:
+        Liste triée de dicts {date, valeur_pea, valeur_cto, valeur_or, valeur_investie}.
+        valeur_totale n'est PAS incluse (calculée dans upsert_historique_retroactif
+        pour préserver les données livrets/AV existantes).
+    """
+    if not mouvements_par_ticker:
+        return []
+
+    # Trouver la date de début (premier mouvement)
+    all_op_dates = [
+        m["date_operation"]
+        for info in mouvements_par_ticker.values()
+        for m in info["mouvements"]
+        if m.get("date_operation")
+    ]
+    if not all_op_dates:
+        return []
+
+    start_str = min(all_op_dates)
+    today = datetime.utcnow().date()
+    start_d = datetime.strptime(start_str, "%Y-%m-%d").date()
+    start_ts = int(datetime(start_d.year, start_d.month, start_d.day).timestamp())
+    end_ts = int(datetime(today.year, today.month, today.day, 23, 59, 59).timestamp())
+
+    # Fetch des historiques en parallèle
+    prix_hist: dict[str, dict[str, float]] = {}
+
+    def _fetch_one(ticker):
+        return ticker, _fetch_historique_ticker(ticker, start_ts, end_ts)
+
+    with ThreadPoolExecutor(max_workers=min(8, len(mouvements_par_ticker))) as ex:
+        futures = {ex.submit(_fetch_one, t): t for t in mouvements_par_ticker}
+        for fut in as_completed(futures):
+            try:
+                ticker, hist = fut.result()
+                if hist:
+                    prix_hist[ticker] = hist
+            except Exception as e:
+                logger.warning("reconstruire_historique_portfolio fetch: %s", e)
+
+    if not prix_hist:
+        return []
+
+    # Générer tous les jours calendaires depuis start jusqu'à aujourd'hui
+    result = []
+    cur = start_d
+    while cur <= today:
+        day_str = cur.strftime("%Y-%m-%d")
+        cur += timedelta(days=1)
+
+        valeur_pea = 0.0
+        valeur_cto = 0.0
+        valeur_or = 0.0
+        investie_pea = 0.0
+        investie_cto = 0.0
+        investie_or = 0.0
+        has_position = False
+
+        for ticker, info in mouvements_par_ticker.items():
+            if ticker not in prix_hist:
+                continue
+
+            # Calcul qty + cost_basis à cette date (mouvements déjà triés par date_operation)
+            qty = 0.0
+            cost_basis = 0.0
+            for m in info["mouvements"]:
+                if (m.get("date_operation") or "") > day_str:
+                    break
+                q = float(m.get("quantite") or 0)
+                p = float(m.get("prix_unitaire") or 0)
+                op = m.get("type_operation", "")
+                if op in ("achat", "snapshot"):
+                    cost_basis += q * p
+                    qty += q
+                elif op == "vente":
+                    if qty > 0:
+                        cost_basis *= (qty - q) / qty  # réduction proportionnelle
+                    qty -= q
+                    qty = max(qty, 0.0)
+
+            if qty <= 0:
+                continue
+
+            cours = prix_hist[ticker].get(day_str)
+            if cours is None:
+                continue
+
+            valeur = round(qty * cours, 4)
+            env = info.get("enveloppe", "")
+            if env == "PEA":
+                valeur_pea += valeur
+                investie_pea += cost_basis
+            elif env == "CTO":
+                valeur_cto += valeur
+                investie_cto += cost_basis
+            elif env == "OR":
+                valeur_or += valeur
+                investie_or += cost_basis
+
+            has_position = True
+
+        if has_position:
+            result.append({
+                "date": day_str,
+                "valeur_pea": round(valeur_pea, 2),
+                "valeur_cto": round(valeur_cto, 2),
+                "valeur_or": round(valeur_or, 2),
+                "investie_pea": round(investie_pea, 2),
+                "investie_cto": round(investie_cto, 2),
+                "investie_or": round(investie_or, 2),
+                "valeur_investie": round(investie_pea + investie_cto + investie_or, 2),
+            })
+
+    logger.info("reconstruire_historique_portfolio: %d points générés", len(result))
+    return result

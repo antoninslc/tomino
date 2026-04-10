@@ -303,6 +303,7 @@ const _store = { data: null, chatMessages: [], currentTicker: '' }
 // ── Formatters ─────────────────────────────────────────────
 const fmtEur = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 })
 const fmtPct = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1, style: 'percent' })
+const n2 = (v) => (v != null ? fmtEur.format(v) : null)
 const fmtGrand = (v) => {
   if (v == null) return '—'
   if (v >= 1e12) return (v / 1e12).toFixed(1) + '\u00a0T'
@@ -660,7 +661,7 @@ function useStreamingChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  async function send(stockData) {
+  async function send(stockData, historyData = null, investmentScore = null) {
     const content = input.trim()
     if (!content || sending) return
     setError('')
@@ -676,7 +677,13 @@ function useStreamingChat() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: abortRef.current.signal,
-        body: JSON.stringify({ messages: next.slice(0, -1), stock_data: stockData, conv_id: convIdRef.current }),
+        body: JSON.stringify({
+          messages: next.slice(0, -1),
+          stock_data: stockData,
+          history_data: historyData,
+          investment_score: investmentScore,
+          conv_id: convIdRef.current,
+        }),
       })
 
       if (!res.ok || !res.body) {
@@ -724,11 +731,11 @@ function useStreamingChat() {
 
 // ── Composant FloatingChat ─────────────────────────────────
 
-function FloatingChat({ stockData, open, onToggle }) {
+function FloatingChat({ stockData, historyData, investmentScore, open, onToggle }) {
   const { messages, input, setInput, sending, send, error, bottomRef } = useStreamingChat()
 
   function onKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(stockData) }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(stockData, historyData, investmentScore) }
   }
 
   return (
@@ -760,7 +767,7 @@ function FloatingChat({ stockData, open, onToggle }) {
 
       <div style={{
         position: 'fixed', bottom: 76, right: 24, zIndex: 599,
-        width: '40vw', height: '40vh',
+        width: '40vw', height: '70vh',
         background: '#1a1d22',
         border: '1px solid rgba(255,255,255,0.09)',
         borderRadius: 16,
@@ -826,7 +833,7 @@ function FloatingChat({ stockData, open, onToggle }) {
           />
           <button
             type="button"
-            onClick={() => send(stockData)}
+            onClick={() => send(stockData, historyData, investmentScore)}
             disabled={sending || !input.trim()}
             className="btn btn-primary"
             style={{ height: 42, minWidth: 88, alignSelf: 'flex-end', flexShrink: 0 }}
@@ -1357,6 +1364,7 @@ export default function StockAnalyse() {
   }
 
   const d = data
+  const scoreForChat = d && !d.source_limitee ? computeScore(d) : null
 
   const pos52w = d?.cours && d?.cours_52w_bas && d?.cours_52w_haut
     ? Math.round(((d.cours - d.cours_52w_bas) / (d.cours_52w_haut - d.cours_52w_bas)) * 100)
@@ -1677,7 +1685,7 @@ export default function StockAnalyse() {
         </>
       )}
 
-      {d && <FloatingChat stockData={d} open={chatOpen} onToggle={() => setChatOpen(v => !v)} />}
+      {d && <FloatingChat stockData={d} historyData={history} investmentScore={scoreForChat} open={chatOpen} onToggle={() => setChatOpen(v => !v)} />}
     </section>
   )
 }

@@ -121,6 +121,20 @@ db.init_db()
 
 
 # -- SNAPSHOT JOURNALIER 17h30 -------------------------------------------------
+def _do_snapshot():
+    """Calcule et enregistre un snapshot du patrimoine pour aujourd'hui."""
+    resume = calcul_resume(force=True)
+    db.save_snapshot({
+        "totale": resume["total"],
+        "pea": resume["pea"]["valeur_actuelle"],
+        "cto": resume["cto"]["valeur_actuelle"],
+        "or_": resume["or"]["valeur_actuelle"],
+        "livrets": resume["livrets"]["valeur_actuelle"],
+        "assurance_vie": resume["assurance_vie"]["valeur_actuelle"],
+        "investie": resume.get("total_investi", 0),
+    }, snapshot_date=_paris_now().date().isoformat())
+
+
 def _snapshot_scheduler():
     while True:
         now = _paris_now()
@@ -129,17 +143,11 @@ def _snapshot_scheduler():
             target += datetime.timedelta(days=1)
         time.sleep((target - now).total_seconds())
         try:
-            resume = calcul_resume(force=True)
-            db.save_snapshot({
-                "totale": resume["total"],
-                "pea": resume["pea"]["valeur_actuelle"],
-                "cto": resume["cto"]["valeur_actuelle"],
-                "or_": resume["or"]["valeur_actuelle"],
-                "livrets": resume["livrets"]["valeur_actuelle"],
-                "assurance_vie": resume["assurance_vie"]["valeur_actuelle"],
-            }, snapshot_date=_paris_now().date().isoformat())
+            _do_snapshot()
         except Exception as e:
             app.logger.warning("snapshot journalier raté: %s", e)
+            # Retry dans 1h si échec
+            time.sleep(3600)
 
 
 def _paris_now() -> datetime.datetime:
@@ -1976,19 +1984,12 @@ def calcul_resume(force: bool = False):
 if not DISABLE_STARTUP_TASKS:
     _run_auto_backup_cycle(_paris_now())
 
-    if not db.has_historique():
+    today_str = _paris_now().date().isoformat()
+    if db.get_last_snapshot_date() != today_str:
         try:
-            _r = calcul_resume(force=True)
-            db.save_snapshot({
-                "totale": _r["total"],
-                "pea": _r["pea"]["valeur_actuelle"],
-                "cto": _r["cto"]["valeur_actuelle"],
-                "or_": _r["or"]["valeur_actuelle"],
-                "livrets": _r["livrets"]["valeur_actuelle"],
-                "assurance_vie": _r["assurance_vie"]["valeur_actuelle"],
-            }, snapshot_date=_paris_now().date().isoformat())
-        except Exception:
-            pass
+            _do_snapshot()
+        except Exception as e:
+            app.logger.warning("snapshot démarrage raté: %s", e)
 
     _t = threading.Thread(target=_snapshot_scheduler, daemon=True)
     _t.start()
@@ -4148,6 +4149,37 @@ def api_historique():
     return jsonify(db.get_historique(90))
 
 
+_RECONSTRUCTION_LOCK = threading.Lock()
+
+@app.route("/api/historique/reconstruire", methods=["POST"])
+def api_historique_reconstruire():
+    """
+    Reconstruit l'historique patrimonial rétroactif à partir des mouvements
+    et des cours Yahoo Finance. Opération longue (~5–30s selon le nombre de tickers).
+    Idempotente : peut être relancée sans perdre les données existantes.
+    """
+    if not _RECONSTRUCTION_LOCK.acquire(blocking=False):
+        return jsonify({"ok": False, "erreur": "Reconstruction déjà en cours, patientez."}), 409
+
+    try:
+        mouvements = db.get_mouvements_pour_historique()
+        if not mouvements:
+            return jsonify({"ok": True, "points": 0, "message": "Aucun mouvement avec ticker connu."})
+
+        snapshots = prices.reconstruire_historique_portfolio(mouvements)
+        if not snapshots:
+            return jsonify({"ok": True, "points": 0, "message": "Aucune donnée récupérée depuis Yahoo Finance."})
+
+        count = db.upsert_historique_retroactif(snapshots)
+        app.logger.info("Reconstruction historique : %d points insérés/mis à jour.", count)
+        return jsonify({"ok": True, "points": count, "tickers": len(mouvements)})
+    except Exception as e:
+        app.logger.exception("Erreur reconstruction historique : %s", e)
+        return jsonify({"ok": False, "erreur": str(e)}), 500
+    finally:
+        _RECONSTRUCTION_LOCK.release()
+
+
 @app.route("/api/rapport")
 def api_rapport():
     mois = request.args.get("mois", "").strip()
@@ -4289,6 +4321,8 @@ def api_stock_chat_stream():
     payload = request.get_json(silent=True) or {}
     messages = payload.get("messages", [])
     stock_data = payload.get("stock_data", {})
+    history_data = payload.get("history_data", {})
+    investment_score = payload.get("investment_score", {})
 
     if not isinstance(messages, list):
         return jsonify({"ok": False, "erreur": "Format invalide"}), 400
@@ -4309,7 +4343,14 @@ def api_stock_chat_stream():
     def generate():
         chunks = []
         usage = {}
-        for chunk in grok.stock_chat_stream(messages, stock_data, tier=tier, conv_id=conv_id):
+        for chunk in grok.stock_chat_stream(
+            messages,
+            stock_data,
+            history_data=history_data,
+            investment_score=investment_score,
+            tier=tier,
+            conv_id=conv_id,
+        ):
             if isinstance(chunk, dict) and "__usage__" in chunk:
                 usage = chunk["__usage__"]
                 continue
@@ -4465,6 +4506,7 @@ def api_rafraichir():
             "or_": resume["or"]["valeur_actuelle"],
             "livrets": resume["livrets"]["valeur_actuelle"],
             "assurance_vie": resume["assurance_vie"]["valeur_actuelle"],
+            "investie": resume.get("total_investi", 0),
         }, snapshot_date=_paris_now().date().isoformat())
     except Exception:
         pass

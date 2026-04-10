@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Area,
-  AreaChart,
+  ComposedChart,
   CartesianGrid,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,45 +16,53 @@ const HISTORY_METRICS = {
   valeur_totale: {
     label: 'Patrimoine total',
     color: '#18c37e',
-    read: (h) => h?.valeur_totale
+    read: (h) => h?.valeur_totale,
+    readInvestie: (h) => h?.valeur_investie ?? null,
   },
   actions: {
-    label: 'Actions (PEA + CTO + Assurance vie)',
+    label: 'Actions (PEA + CTO)',
     color: '#5dd6ff',
     read: (h) => {
       const pea = Number(h?.valeur_pea)
       const cto = Number(h?.valeur_cto)
-      const av = Number(h?.valeur_assurance_vie)
-      const values = [pea, cto, av].filter(Number.isFinite)
-      if (!values.length) return null
-      return values.reduce((acc, value) => acc + value, 0)
-    }
+      const values = [pea, cto].filter(v => Number.isFinite(v) && v > 0)
+      return values.length ? values.reduce((a, v) => a + v, 0) : null
+    },
+    readInvestie: (h) => {
+      const i = Number(h?.valeur_pea_investie ?? 0) + Number(h?.valeur_cto_investie ?? 0)
+      return i > 0 ? i : null
+    },
   },
   valeur_pea: {
     label: 'PEA',
     color: '#4ade80',
-    read: (h) => h?.valeur_pea
+    read: (h) => h?.valeur_pea,
+    readInvestie: (h) => h?.valeur_pea_investie ?? null,
   },
   valeur_cto: {
     label: 'CTO',
     color: '#60a5fa',
-    read: (h) => h?.valeur_cto
+    read: (h) => h?.valeur_cto,
+    readInvestie: (h) => h?.valeur_cto_investie ?? null,
   },
   valeur_assurance_vie: {
     label: 'Assurance vie',
     color: '#f59e0b',
-    read: (h) => h?.valeur_assurance_vie
+    read: (h) => h?.valeur_assurance_vie,
+    readInvestie: null,
   },
   valeur_or: {
     label: 'Or',
     color: '#c9a84c',
-    read: (h) => h?.valeur_or
+    read: (h) => h?.valeur_or,
+    readInvestie: (h) => h?.valeur_or_investie ?? null,
   },
   valeur_livrets: {
     label: 'Livrets',
     color: '#adb7c7',
-    read: (h) => h?.valeur_livrets
-  }
+    read: (h) => h?.valeur_livrets,
+    readInvestie: null,
+  },
 }
 
 function eur(n) {
@@ -73,104 +82,249 @@ function prettyDate(iso) {
   return d.toLocaleDateString('fr-FR')
 }
 
+const PERIODS = [
+  { key: '7J',  days: 7 },
+  { key: '1M',  days: 30 },
+  { key: '3M',  days: 91 },
+  { key: '6M',  days: 182 },
+  { key: '1A',  days: 365 },
+  { key: 'MAX', days: null },
+]
+
+function formatEur(v) {
+  return Number(v).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
+}
+
 function HistoryChart({ data = [], metric = 'valeur_totale' }) {
+  const [period, setPeriod] = useState('MAX')
   const selectedMetric = HISTORY_METRICS[metric] || HISTORY_METRICS.valeur_totale
-  const chartData = data
-    .map((h) => {
-      const raw = selectedMetric.read(h)
-      const value = Number(raw)
-      if (!Number.isFinite(value)) return null
-      return {
-        date: h.date ? h.date.slice(0, 10) : '-',
-        valeur: value
-      }
-    })
-    .filter(Boolean)
 
-  if (chartData.length < 2) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 280, color: 'var(--text-3)', fontSize: '.86rem', fontFamily: 'var(--mono)' }}>
-        Pas assez de points valides pour tracer cette série.
-      </div>
-    )
-  }
+  const filteredData = useMemo(() => {
+    const sorted = [...data]
+      .filter(h => h.date)
+      .sort((a, b) => a.date.localeCompare(b.date))
+    const p = PERIODS.find(p => p.key === period)
+    if (!p?.days) return sorted
+    const cutoff = new Date()
+    cutoff.setDate(cutoff.getDate() - p.days)
+    const cutStr = cutoff.toISOString().slice(0, 10)
+    return sorted.filter(h => h.date >= cutStr)
+  }, [data, period])
 
-  const values = chartData.map((d) => d.valeur)
-  const minVal = Math.min(...values)
-  const maxVal = Math.max(...values)
-  const pad = (maxVal - minVal) * 0.08 || 500
-  const yMin = Math.max(0, minVal - pad)
-  const yMax = maxVal + pad
+  const chartData = useMemo(() => {
+    return filteredData
+      .map(h => {
+        const raw = selectedMetric.read(h)
+        const value = Number(raw)
+        if (!Number.isFinite(value) || value === 0) return null
+        const rawInvestie = selectedMetric.readInvestie ? selectedMetric.readInvestie(h) : null
+        const investie = Number(rawInvestie)
+        return {
+          date: h.date.slice(0, 10),
+          valeur: value,
+          investie: Number.isFinite(investie) && investie > 0 ? investie : undefined,
+        }
+      })
+      .filter(Boolean)
+  }, [filteredData, selectedMetric])
 
-  function formatDate(iso) {
+  const perf = useMemo(() => {
+    if (chartData.length < 2) return null
+    const lastPoint = chartData[chartData.length - 1]
+    const last = lastPoint.valeur
+    // Si on a le cost basis, on montre le gain latent réel (valeur - investi)
+    // Sinon, variation brute sur la période (trompeuse si DCA)
+    if (lastPoint.investie != null && lastPoint.investie > 0) {
+      const gain = last - lastPoint.investie
+      return { abs: gain, pct: (gain / lastPoint.investie) * 100 }
+    }
+    const first = chartData[0].valeur
+    if (!first) return null
+    return { abs: last - first, pct: ((last - first) / first) * 100 }
+  }, [chartData])
+
+  const showInvestie = selectedMetric.readInvestie != null && chartData.some(d => d.investie != null)
+
+  function formatXDate(iso) {
     if (!iso || iso === '-') return ''
     const d = new Date(iso)
     if (Number.isNaN(d.getTime())) return iso
-    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
-  }
-
-  function formatEur(v) {
-    return Number(v).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
+    // Toujours afficher jour + mois pour éviter l'ambiguïté "mars 26" = mois/année ou jour/mois
+    return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
   }
 
   function CustomTooltip({ active, payload, label }) {
     if (!active || !payload?.length) return null
+    const valeur = payload.find(p => p.dataKey === 'valeur')?.value
+    const investie = showInvestie ? payload.find(p => p.dataKey === 'investie')?.value : null
+    const gain = valeur != null && investie != null ? valeur - investie : null
+    const gainPct = gain != null && investie > 0 ? (gain / investie) * 100 : null
+    const d = new Date(label)
+    const dateStr = Number.isNaN(d.getTime()) ? label : d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
     return (
-      <div style={{ background: 'rgba(16,18,24,.96)', border: '1px solid rgba(255,255,255,.14)', borderRadius: 10, padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '.75rem' }}>
-        <div style={{ color: 'var(--text-3)', marginBottom: 4 }}>{label}</div>
-        <div style={{ color: 'var(--green)', fontWeight: 700 }}>{formatEur(payload[0].value)}</div>
+      <div style={{ background: 'rgba(12,14,20,.97)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 10, padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '.75rem', minWidth: 200 }}>
+        <div style={{ color: '#718095', marginBottom: 8, fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.06em' }}>{dateStr}</div>
+        {valeur != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginBottom: investie ? 4 : 0 }}>
+            <span style={{ color: '#718095' }}>Patrimoine</span>
+            <span style={{ color: selectedMetric.color, fontWeight: 700 }}>{formatEur(valeur)}</span>
+          </div>
+        )}
+        {investie != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, marginBottom: gain != null ? 6 : 0 }}>
+            <span style={{ color: '#718095' }}>Investi</span>
+            <span style={{ color: '#94a3b8' }}>{formatEur(investie)}</span>
+          </div>
+        )}
+        {gain != null && (
+          <div style={{ borderTop: '1px solid rgba(255,255,255,.08)', paddingTop: 6, display: 'flex', justifyContent: 'space-between', gap: 24 }}>
+            <span style={{ color: '#718095' }}>Gain / Perte</span>
+            <span style={{ color: gain >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
+              {gain >= 0 ? '+' : ''}{formatEur(gain)} ({gainPct >= 0 ? '+' : ''}{gainPct.toFixed(2)}%)
+            </span>
+          </div>
+        )}
       </div>
     )
   }
 
-  // Limiter les ticks X à ~6 points répartis
-  const step = Math.max(1, Math.floor(chartData.length / 6))
-  const xTicks = Array.from(
-    new Set(
-      chartData
-        .filter((_, i) => i % step === 0 || i === chartData.length - 1)
-        .map((d) => d.date)
+  if (chartData.length < 2) {
+    return (
+      <>
+        <PeriodSelector period={period} setPeriod={setPeriod} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 280, color: 'var(--text-3)', fontSize: '.86rem', fontFamily: 'var(--mono)' }}>
+          Pas assez de données sur cette période.
+        </div>
+      </>
     )
-  )
+  }
+
+  const allValues = chartData.flatMap(d => [d.valeur, d.investie].filter(Number.isFinite))
+  const minVal = Math.min(...allValues)
+  const maxVal = Math.max(...allValues)
+  const pad = (maxVal - minVal) * 0.08 || 500
+  const yMin = Math.max(0, minVal - pad)
+  const yMax = maxVal + pad
+
+  const step = Math.max(1, Math.floor(chartData.length / 6))
+  const xTicks = Array.from(new Set(
+    chartData
+      .filter((_, i) => i % step === 0 || i === chartData.length - 1)
+      .map(d => d.date)
+  ))
+
+  const isPos = perf == null || perf.pct >= 0
 
   return (
-    <ResponsiveContainer width="100%" height={280}>
-      <AreaChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-        <defs>
-          <linearGradient id="histGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={selectedMetric.color} stopOpacity={0.32} />
-            <stop offset="100%" stopColor={selectedMetric.color} stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
-        <XAxis
-          dataKey="date"
-          tickFormatter={formatDate}
-          ticks={xTicks}
-          tick={{ fill: '#718095', fontSize: 11, fontFamily: 'var(--mono)' }}
-          axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
-          tickLine={false}
-        />
-        <YAxis
-          domain={[yMin, yMax]}
-          tickFormatter={(v) => Number(v).toLocaleString('fr-FR') + ' €'}
-          tick={{ fill: '#718095', fontSize: 11, fontFamily: 'var(--mono)' }}
-          axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
-          tickLine={false}
-          width={88}
-        />
-        <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.14)', strokeWidth: 1 }} />
-        <Area
-          type="linear"
-          dataKey="valeur"
-          stroke={selectedMetric.color}
-          strokeWidth={2}
-          fill="url(#histGradient)"
-          dot={false}
-          activeDot={{ r: 4, fill: selectedMetric.color, stroke: '#0b0d10', strokeWidth: 2 }}
-        />
-      </AreaChart>
-    </ResponsiveContainer>
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <PeriodSelector period={period} setPeriod={setPeriod} />
+        {perf != null && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: isPos ? 'rgba(24,195,126,.1)' : 'rgba(239,68,68,.1)',
+            border: `1px solid ${isPos ? 'rgba(24,195,126,.25)' : 'rgba(239,68,68,.25)'}`,
+            borderRadius: 8, padding: '4px 10px',
+            fontFamily: 'var(--mono)', fontSize: '.8rem', fontWeight: 700,
+            color: isPos ? 'var(--green)' : 'var(--red)',
+          }}>
+            <span>{isPos ? '+' : ''}{formatEur(perf.abs)}</span>
+            <span style={{ opacity: .55 }}>·</span>
+            <span>{isPos ? '+' : ''}{perf.pct.toFixed(2)}%</span>
+          </div>
+        )}
+      </div>
+      <ResponsiveContainer width="100%" height={300}>
+        <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+          <defs>
+            <linearGradient id="histGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={selectedMetric.color} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={selectedMetric.color} stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+          <XAxis
+            dataKey="date"
+            tickFormatter={formatXDate}
+            ticks={xTicks}
+            tick={{ fill: '#718095', fontSize: 11, fontFamily: 'var(--mono)' }}
+            axisLine={{ stroke: 'rgba(255,255,255,0.07)' }}
+            tickLine={false}
+          />
+          <YAxis
+            domain={[yMin, yMax]}
+            tickFormatter={v => Number(v).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €'}
+            tick={{ fill: '#718095', fontSize: 11, fontFamily: 'var(--mono)' }}
+            axisLine={{ stroke: 'rgba(255,255,255,0.07)' }}
+            tickLine={false}
+            width={88}
+          />
+          <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.12)', strokeWidth: 1 }} />
+          <Area
+            type="monotone"
+            dataKey="valeur"
+            stroke={selectedMetric.color}
+            strokeWidth={2}
+            fill="url(#histGradient)"
+            dot={false}
+            activeDot={{ r: 4, fill: selectedMetric.color, stroke: '#0b0d10', strokeWidth: 2 }}
+            connectNulls
+          />
+          {showInvestie && (
+            <Line
+              type="monotone"
+              dataKey="investie"
+              stroke="#475569"
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              dot={false}
+              activeDot={false}
+              connectNulls
+            />
+          )}
+        </ComposedChart>
+      </ResponsiveContainer>
+      {showInvestie && (
+        <div style={{ display: 'flex', gap: 20, marginTop: 12, fontFamily: 'var(--mono)', fontSize: '.74rem', color: '#718095', justifyContent: 'flex-end' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ display: 'inline-block', width: 18, height: 2, background: selectedMetric.color, borderRadius: 1 }} />
+            Patrimoine
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ display: 'inline-block', width: 18, height: 0, border: '1px dashed #475569' }} />
+            Capital investi
+          </span>
+        </div>
+      )}
+    </>
+  )
+}
+
+function PeriodSelector({ period, setPeriod }) {
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {PERIODS.map(p => (
+        <button
+          key={p.key}
+          onClick={() => setPeriod(p.key)}
+          style={{
+            padding: '4px 10px',
+            borderRadius: 7,
+            border: '1px solid',
+            borderColor: period === p.key ? 'rgba(24,195,126,.5)' : 'rgba(255,255,255,.1)',
+            background: period === p.key ? 'rgba(24,195,126,.12)' : 'transparent',
+            color: period === p.key ? 'var(--green)' : '#718095',
+            fontFamily: 'var(--mono)',
+            fontSize: '.78rem',
+            fontWeight: period === p.key ? 700 : 400,
+            cursor: 'pointer',
+            transition: 'all .15s',
+          }}
+        >
+          {p.key}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -247,6 +401,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedHistoryMetric, setSelectedHistoryMetric] = useState('valeur_totale')
+  const [reconstructing, setReconstructing] = useState(false)
+  const [reconstructMsg, setReconstructMsg] = useState('')
 
   useEffect(() => {
     let mounted = true
@@ -281,6 +437,25 @@ export default function Dashboard() {
       window.clearInterval(id)
     }
   }, [])
+
+  async function lancerReconstruction() {
+    setReconstructing(true)
+    setReconstructMsg('')
+    try {
+      const res = await api.post('/historique/reconstruire', {})
+      if (res.ok) {
+        setReconstructMsg(`${res.points} points reconstruits (${res.tickers ?? '?'} tickers).`)
+        const histData = await api.get('/historique')
+        setHistorique(Array.isArray(histData) ? histData : [])
+      } else {
+        setReconstructMsg(res.erreur || 'Erreur lors de la reconstruction.')
+      }
+    } catch (e) {
+      setReconstructMsg(e?.message || 'Erreur réseau.')
+    } finally {
+      setReconstructing(false)
+    }
+  }
 
   const historyMetricOptions = useMemo(
     () => Object.entries(HISTORY_METRICS).map(([value, def]) => ({ value, label: def.label })),
@@ -444,22 +619,43 @@ export default function Dashboard() {
           </div>
 
           <div className="card fade-up-3" style={{ marginBottom: 24 }}>
-            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18, gap: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, gap: 16, flexWrap: 'wrap' }}>
               <div>
-                <div className="card-label" style={{ marginBottom: 8 }}>Évolution</div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '-0.03em' }}>Historique du patrimoine</div>
-                <div style={{ marginTop: 6, color: 'var(--text-2)', fontSize: '.9rem' }}>Snapshots enregistrés chaque jour à 17h30 (heure de Paris) et lors des rafraîchissements.</div>
+                <div className="card-label" style={{ marginBottom: 6 }}>Évolution du patrimoine</div>
+                <div style={{ fontSize: '1.15rem', fontWeight: 800, letterSpacing: '-0.03em' }}>Historique</div>
               </div>
-              <div style={{ minWidth: 280, display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <CustomSelect
                   value={selectedHistoryMetric}
                   onChange={setSelectedHistoryMetric}
                   options={historyMetricOptions}
-                  placeholder="Choisir une série"
+                  placeholder="Série"
                 />
-                <div className="badge badge-dim" style={{ justifySelf: 'end' }}>{historique.length} points</div>
+                <div className="badge badge-dim">{historique.length} pts</div>
+                <button
+                  onClick={lancerReconstruction}
+                  disabled={reconstructing}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: 8,
+                    border: '1px solid rgba(255,255,255,.12)',
+                    background: 'rgba(255,255,255,.04)',
+                    color: reconstructing ? 'var(--text-3)' : 'var(--text-2)',
+                    fontFamily: 'var(--mono)',
+                    fontSize: '.78rem',
+                    cursor: reconstructing ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {reconstructing ? 'Reconstruction...' : 'Reconstruire'}
+                </button>
               </div>
             </div>
+            {reconstructMsg && (
+              <div style={{ marginBottom: 12, fontFamily: 'var(--mono)', fontSize: '.78rem', color: 'var(--text-3)' }}>
+                {reconstructMsg}
+              </div>
+            )}
             <HistoryChart data={historique} metric={selectedHistoryMetric} />
           </div>
 

@@ -489,7 +489,8 @@ def init_db():
             valeur_cto REAL,
             valeur_or REAL,
             valeur_livrets REAL,
-            valeur_assurance_vie REAL
+            valeur_assurance_vie REAL,
+            valeur_investie REAL
         )
     """)
 
@@ -497,6 +498,15 @@ def init_db():
         c.execute("ALTER TABLE historique ADD COLUMN valeur_assurance_vie REAL")
     except Exception:
         pass
+    try:
+        c.execute("ALTER TABLE historique ADD COLUMN valeur_investie REAL")
+    except Exception:
+        pass
+    for col in ("valeur_pea_investie", "valeur_cto_investie", "valeur_or_investie"):
+        try:
+            c.execute(f"ALTER TABLE historique ADD COLUMN {col} REAL")
+        except Exception:
+            pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS analyses (
@@ -1945,25 +1955,28 @@ def save_snapshot(valeurs: dict, snapshot_date=None):
         "or_": float(valeurs.get("or_") or 0),
         "livrets": float(valeurs.get("livrets") or 0),
         "assurance_vie": float(valeurs.get("assurance_vie") or 0),
+        "investie": float(valeurs.get("investie") or 0),
     }
     existing = conn.execute("SELECT id FROM historique WHERE date = ?", (date_value,)).fetchone()
     if existing:
         conn.execute("""
             UPDATE historique SET valeur_totale=:totale, valeur_pea=:pea, valeur_cto=:cto,
-            valeur_or=:or_, valeur_livrets=:livrets, valeur_assurance_vie=:assurance_vie
+            valeur_or=:or_, valeur_livrets=:livrets, valeur_assurance_vie=:assurance_vie,
+            valeur_investie=:investie
             WHERE date=:date
         """, payload)
     else:
         conn.execute("""
             INSERT INTO historique (
-                date, valeur_totale, valeur_pea, valeur_cto, valeur_or, valeur_livrets, valeur_assurance_vie
+                date, valeur_totale, valeur_pea, valeur_cto, valeur_or,
+                valeur_livrets, valeur_assurance_vie, valeur_investie
             )
-            VALUES (:date, :totale, :pea, :cto, :or_, :livrets, :assurance_vie)
+            VALUES (:date, :totale, :pea, :cto, :or_, :livrets, :assurance_vie, :investie)
         """, payload)
     conn.commit()
     conn.close()
 
-def get_historique(limit=90):
+def get_historique(limit=500):
     conn = get_db()
     rows = conn.execute("""
         SELECT * FROM (
@@ -1978,6 +1991,145 @@ def has_historique():
     row = conn.execute("SELECT COUNT(*) FROM historique").fetchone()
     conn.close()
     return row[0] > 0
+
+def get_last_snapshot_date() -> str | None:
+    conn = get_db()
+    row = conn.execute("SELECT MAX(date) FROM historique").fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_mouvements_pour_historique() -> dict:
+    """
+    Retourne les mouvements groupés par ticker pour la reconstruction rétroactive.
+    Seuls les actifs encore présents en DB avec un ticker connu sont inclus.
+    Format: {
+        "AIR.PA": {"enveloppe": "PEA", "mouvements": [{"type_operation", "date_operation", "quantite", "prix_unitaire"}, ...]},
+        ...
+    }
+    """
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT m.type_operation, m.date_operation, m.quantite, m.prix_unitaire,
+               m.enveloppe, a.ticker
+        FROM mouvements m
+        JOIN actifs a ON m.actif_id = a.id
+        WHERE a.ticker IS NOT NULL AND a.ticker != ''
+          AND m.date_operation IS NOT NULL
+          AND m.type_operation IN ('achat', 'vente', 'snapshot')
+        ORDER BY m.date_operation ASC
+    """).fetchall()
+    conn.close()
+
+    result = {}
+    for row in rows:
+        ticker = str(row["ticker"]).strip().upper()
+        if not ticker:
+            continue
+        if ticker not in result:
+            result[ticker] = {"enveloppe": row["enveloppe"], "mouvements": []}
+        result[ticker]["mouvements"].append({
+            "type_operation": row["type_operation"],
+            "date_operation": row["date_operation"],
+            "quantite": float(row["quantite"] or 0),
+            "prix_unitaire": float(row["prix_unitaire"] or 0),
+        })
+    return result
+
+
+def upsert_historique_retroactif(snapshots: list) -> int:
+    """
+    Insère ou met à jour les snapshots reconstruits dans historique.
+
+    Stratégie valeur_totale :
+    - Les anciens snapshots du scheduler incluent livrets + AV dans valeur_totale,
+      les jours reconstruits n'ont que les stocks → créerait des pics/creux.
+    - Pour chaque jour (nouveau ou existant), on forward-fill les livrets/AV depuis
+      le snapshot réel le plus récent ≤ date, afin que valeur_totale soit cohérent
+      sur toute la courbe.
+
+    Retourne le nombre de lignes traitées.
+    """
+    conn = get_db()
+
+    # Charger tous les snapshots existants avec livrets/AV, triés par date
+    known = conn.execute("""
+        SELECT date, valeur_livrets, valeur_assurance_vie
+        FROM historique
+        WHERE valeur_livrets IS NOT NULL OR valeur_assurance_vie IS NOT NULL
+        ORDER BY date ASC
+    """).fetchall()
+    # Index {date_str: (livrets, av)} pour lookup rapide
+    known_map = {
+        row["date"]: (float(row["valeur_livrets"] or 0), float(row["valeur_assurance_vie"] or 0))
+        for row in known
+    }
+    known_dates = sorted(known_map)
+
+    def _get_livrets_av(date: str):
+        """
+        Forward-fill + backward-fill.
+        - Si des snapshots connus existent avant la date → dernier connu (forward-fill).
+        - Si la date est antérieure à tout snapshot connu → utilise le plus ancien (backward-fill).
+        Les livrets/AV évoluent très lentement, cette approximation est acceptable.
+        """
+        if not known_dates:
+            return (0.0, 0.0)
+        best = None
+        for d in known_dates:
+            if d <= date:
+                best = known_map[d]
+            else:
+                break
+        # Backward-fill : date antérieure à tous les snapshots connus
+        if best is None:
+            best = known_map[known_dates[0]]
+        return best
+
+    count = 0
+    for snap in snapshots:
+        date = snap["date"]
+        pea = float(snap.get("valeur_pea") or 0)
+        cto = float(snap.get("valeur_cto") or 0)
+        or_ = float(snap.get("valeur_or") or 0)
+        investie = float(snap.get("valeur_investie") or 0)
+
+        livrets, av = _get_livrets_av(date)
+        totale = round(pea + cto + or_ + livrets + av, 2)
+        # valeur_investie (total) inclut livrets+AV pour que le gain sur valeur_totale soit juste
+        investie_totale = round(investie + livrets + av, 2)
+        investie_pea = round(snap.get("investie_pea") or 0, 2)
+        investie_cto = round(snap.get("investie_cto") or 0, 2)
+        investie_or  = round(snap.get("investie_or")  or 0, 2)
+
+        existing = conn.execute(
+            "SELECT id FROM historique WHERE date = ?", (date,)
+        ).fetchone()
+
+        if existing:
+            conn.execute("""
+                UPDATE historique
+                SET valeur_totale = ?, valeur_pea = ?, valeur_cto = ?,
+                    valeur_or = ?, valeur_investie = ?,
+                    valeur_pea_investie = ?, valeur_cto_investie = ?, valeur_or_investie = ?
+                WHERE date = ?
+            """, (totale, round(pea, 2), round(cto, 2), round(or_, 2), investie_totale,
+                  investie_pea, investie_cto, investie_or, date))
+        else:
+            conn.execute("""
+                INSERT INTO historique (date, valeur_totale, valeur_pea, valeur_cto,
+                    valeur_or, valeur_livrets, valeur_assurance_vie, valeur_investie,
+                    valeur_pea_investie, valeur_cto_investie, valeur_or_investie)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (date, totale, round(pea, 2), round(cto, 2), round(or_, 2),
+                  round(livrets, 2) if livrets else None,
+                  round(av, 2) if av else None,
+                  investie_totale, investie_pea, investie_cto, investie_or))
+        count += 1
+
+    conn.commit()
+    conn.close()
+    return count
 
 # ── ANALYSES ──────────────────────────────────────────────
 def save_analyse(type_analyse, contexte, reponse):
