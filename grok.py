@@ -879,3 +879,106 @@ Réponds aux questions sur cette action. Si l'utilisateur demande une opinion d'
 
     # Sentinel final avec les vrais compteurs de tokens
     yield {"__usage__": usage_total}
+
+
+# ── Memo d'investissement proactif ────────────────────────
+
+def generer_memo_action(stock_data: dict, history_data: dict | None = None) -> tuple[str, dict]:
+    """
+    Génère un mémo d'investissement structuré sur une action.
+    Non-streaming — retourne (texte_markdown, usage_dict).
+
+    Sections : Thèse haussière / Thèse baissière / Risques clés /
+               Catalyseurs potentiels / Verdict
+    """
+    api_key = os.getenv("XAI_API_KEY", "").strip()
+    if not api_key:
+        return "[ERREUR] Clé API XAI_API_KEY manquante.", {}
+
+    def _fmt(v, suffix=""):
+        if v is None: return "N/D"
+        if abs(v) >= 1e9: return f"{v/1e9:.1f} Md{suffix}"
+        if abs(v) >= 1e6: return f"{v/1e6:.0f} M{suffix}"
+        return f"{v:.2f}{suffix}"
+    def _pct(v):
+        return f"{v*100:.1f}%" if v is not None else "N/D"
+
+    d = stock_data
+    nom = d.get("nom") or d.get("ticker", "?")
+    ticker = d.get("ticker", "")
+    devise = d.get("devise", "€")
+
+    ctx_lines = [
+        f"Action : {nom} ({ticker}) — {d.get('secteur','N/D')}, {d.get('pays','N/D')}",
+        f"Cours : {d.get('cours')} {devise} | Capi : {_fmt(d.get('capitalisation'))} {devise}",
+        f"P/E trailing : {d.get('pe_trailing')} | P/E forward : {d.get('pe_forward')} | PEG : {d.get('peg')}",
+        f"EV/EBITDA : {d.get('ev_ebitda')} | P/B : {d.get('pb')} | P/S : {d.get('ps')}",
+        f"Price/FCF : {d.get('price_fcf')} | FCF TTM : {_fmt(d.get('fcf_ttm'))} {devise}",
+        f"ROIC : {_pct(d.get('roic'))} | ROE : {_pct(d.get('roe'))} | ROA : {_pct(d.get('roa'))}",
+        f"Marge nette : {_pct(d.get('marge_nette'))} | Marge op. : {_pct(d.get('marge_operationnelle'))} | Marge brute : {_pct(d.get('marge_brute'))}",
+        f"Croissance CA : {_pct(d.get('croissance_ca'))} | Croissance bénéfices : {_pct(d.get('croissance_benefices'))}",
+        f"Dette nette/EBITDA : {d.get('dette_nette_ebitda')} | Current ratio : {d.get('current_ratio')}",
+        f"Altman Z-Score : {d.get('altman_z')} | Bêta : {d.get('beta')}",
+        f"Rendement dividende : {_pct(d.get('rendement_div'))} | Taux distribution : {_pct(d.get('taux_distribution'))}",
+        f"Consensus : {d.get('recommandation')} | Objectif moyen : {d.get('objectif_moyen')} {devise} ({d.get('nb_analystes',0)} analystes)",
+    ]
+    if d.get("description"):
+        ctx_lines.append(f"Description : {str(d['description'])[:400]}")
+    if history_data and history_data.get("annees"):
+        yrs = history_data.get("annees", [])
+        ctx_lines.append("Historique CA : " + " | ".join(
+            f"{y}: {_fmt(v)}" for y, v in zip(yrs, history_data.get("ca", [])) if v is not None))
+        ctx_lines.append("Historique Résultat net : " + " | ".join(
+            f"{y}: {_fmt(v)}" for y, v in zip(yrs, history_data.get("resultat_net", [])) if v is not None))
+        ctx_lines.append("Historique FCF : " + " | ".join(
+            f"{y}: {_fmt(v)}" for y, v in zip(yrs, history_data.get("fcf", [])) if v is not None))
+
+    system_prompt = (
+        "Tu es un analyste financier senior. Tu rédiges des mémos d'investissement factuels, structurés et nuancés. "
+        "Tu ne donnes jamais de conseil d'achat ou de vente — tu analyses les données. "
+        "Sois direct, dense, sans introduction ni conclusion générique.\n\n"
+        "Produis un mémo en Markdown avec exactement ces 5 sections :\n"
+        "## Thèse haussière\n3 arguments factuels basés sur les données.\n"
+        "## Thèse baissière\n3 arguments factuels basés sur les données.\n"
+        "## Risques clés\n2-3 risques spécifiques à surveiller.\n"
+        "## Catalyseurs potentiels\n2-3 éléments qui pourraient faire évoluer le cours.\n"
+        "## Verdict\n1-2 phrases synthétiques sur le profil risque/rendement. "
+        "Terminer par : *Analyse factuelle — pas un conseil financier.*"
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "\n".join(ctx_lines)},
+    ]
+
+    usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
+    try:
+        r = requests.post(
+            _API_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": _MODEL, "messages": messages, "temperature": 0.3, "max_tokens": 900},
+            timeout=60,
+        )
+        r.raise_for_status()
+        data = r.json()
+        usage = data.get("usage") or {}
+        usage_total["prompt_tokens"] = int(usage.get("prompt_tokens") or 0)
+        usage_total["completion_tokens"] = int(usage.get("completion_tokens") or 0)
+        usage_total["cached_tokens"] = int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+        texte = data["choices"][0]["message"]["content"]
+        profil = db.get_profil()
+        tier = profil.get("tier", "tomino_plus")
+        db.add_ia_usage({
+            "endpoint": "memo_action",
+            "tier": tier,
+            "input_tokens": usage_total["prompt_tokens"],
+            "output_tokens": usage_total["completion_tokens"],
+            "total_tokens": usage_total["prompt_tokens"] + usage_total["completion_tokens"],
+            "cost_eur": 0.0,
+        })
+        return texte, usage_total
+    except requests.exceptions.HTTPError as exc:
+        code = exc.response.status_code if exc.response is not None else "?"
+        return f"[ERREUR] HTTP {code} depuis l'API xAI.", usage_total
+    except Exception as e:
+        return f"[ERREUR] {e}", usage_total

@@ -43,6 +43,21 @@ const PAYS_FR = {
 }
 const tr = (map, v) => (v && map[v]) || v || ''
 
+// ── Médianes sectorielles indicatives ─────────────────────
+const SECTOR_BENCHMARKS = {
+  'Technology':             { pe_forward: 24, ev_ebitda: 18, pb: 6,   roic: 0.20, marge_nette: 0.18, dette_nette_ebitda: 0.5  },
+  'Healthcare':             { pe_forward: 18, ev_ebitda: 14, pb: 4,   roic: 0.15, marge_nette: 0.15, dette_nette_ebitda: 1.5  },
+  'Financials':             { pe_forward: 10, ev_ebitda: null, pb: 1.3, roic: 0.12, marge_nette: 0.22, dette_nette_ebitda: null },
+  'Consumer Cyclical':      { pe_forward: 16, ev_ebitda: 12, pb: 3,   roic: 0.14, marge_nette: 0.08, dette_nette_ebitda: 2.0  },
+  'Consumer Defensive':     { pe_forward: 16, ev_ebitda: 13, pb: 3.5, roic: 0.16, marge_nette: 0.10, dette_nette_ebitda: 2.0  },
+  'Industrials':            { pe_forward: 17, ev_ebitda: 13, pb: 3.5, roic: 0.14, marge_nette: 0.09, dette_nette_ebitda: 2.5  },
+  'Basic Materials':        { pe_forward: 12, ev_ebitda: 8,  pb: 2,   roic: 0.12, marge_nette: 0.10, dette_nette_ebitda: 1.5  },
+  'Real Estate':            { pe_forward: 28, ev_ebitda: 18, pb: 1.5, roic: 0.06, marge_nette: 0.20, dette_nette_ebitda: 5.0  },
+  'Utilities':              { pe_forward: 16, ev_ebitda: 10, pb: 1.5, roic: 0.07, marge_nette: 0.12, dette_nette_ebitda: 4.5  },
+  'Energy':                 { pe_forward: 10, ev_ebitda: 6,  pb: 1.5, roic: 0.12, marge_nette: 0.10, dette_nette_ebitda: 1.0  },
+  'Communication Services': { pe_forward: 15, ev_ebitda: 12, pb: 3,   roic: 0.15, marge_nette: 0.14, dette_nette_ebitda: 2.0  },
+}
+
 // ── Infos métriques (modales détaillées) ──────────────────
 const METRIC_INFO = {
   '52w': {
@@ -294,6 +309,27 @@ const METRIC_INFO = {
     def: "L'objectif de cours moyen est la moyenne pondérée des prix cibles fixés par les analystes pour les 12 prochains mois. Le potentiel affiché est simplement : (objectif – cours actuel) / cours actuel.",
     niveaux: [],
     exemple: "Si le cours est 100 € et l'objectif moyen est 125 €, le potentiel affiché est +25%. Les fourchettes bas/haut montrent le degré de divergence entre analystes : une fourchette large = grande incertitude.",
+  },
+  'memo_grok': {
+    def: "Mémo d'investissement généré par Grok (xAI). Analyse factuelle structurée en 5 sections : thèse haussière, thèse baissière, risques, catalyseurs et verdict. Basé uniquement sur les données fondamentales disponibles.",
+    niveaux: [],
+    exemple: "Ce mémo est une analyse factuelle automatisée, pas un conseil financier. Il doit être lu en complément d'une analyse personnelle approfondie.",
+  },
+  'sector_comparison': {
+    def: "Compare les ratios clés de l'action avec les médianes indicatives de son secteur. Permet de situer rapidement la valorisation et la rentabilité relative aux pairs sans API externe.",
+    niveaux: [
+      { label: 'Sous la médiane (ratio de valorisation)', color: '#18c37e', desc: "Valorisation relative attractive — l'action est moins chère que ses pairs sur ce critère." },
+      { label: 'Au-dessus de la médiane (ratio de valorisation)', color: '#ff6b6b', desc: "Prime sectorielle — vérifier si la qualité ou la croissance justifient l'écart." },
+    ],
+    exemple: "Une action tech avec P/E forward 18 vs médiane secteur 24 se négocie avec 25% de décote sectorielle sur ce multiple.",
+  },
+  'dcf_sensitivity': {
+    def: "Grille de sensibilité DCF : chaque cellule montre la valeur intrinsèque estimée pour une combinaison WACC × taux de croissance FCF. Les colonnes varient la croissance (±4 points), les lignes varient le WACC (±2 points). Permet d'évaluer la robustesse de la valorisation aux hypothèses choisies.",
+    niveaux: [
+      { label: 'Cellule verte', color: '#18c37e', desc: "Valeur intrinsèque supérieure au cours actuel — l'action serait sous-évaluée avec ces hypothèses." },
+      { label: 'Cellule rouge', color: '#ff6b6b', desc: "Valeur intrinsèque inférieure au cours actuel — l'action serait surévaluée avec ces hypothèses." },
+    ],
+    exemple: "Si la majorité des cellules sont vertes, la thèse haussière est robuste. Si seuls les scénarios optimistes donnent du vert, le titre est très sensible aux hypothèses.",
   },
 }
 
@@ -881,6 +917,111 @@ function getPEAEligibility(d) {
   return { eligible: null, raison: 'Éligibilité incertaine — vérifier auprès de votre courtier' }
 }
 
+// ── Sensibilité DCF ────────────────────────────────────────
+
+function DCFSensitivity({ fcf0, shares, cours, waccBase, croisBase, tgBase, annees, devise }) {
+  const [infoOpen, setInfoOpen] = useState(false)
+  const waccSteps = [-2, -1, 0, 1, 2]
+  const croisSteps = [-4, -2, 0, 2, 4]
+
+  function calcVI(wacc, crois) {
+    const wD = wacc / 100, tD = tgBase / 100, cD = crois / 100
+    if (wD <= tD) return null
+    let pv = 0
+    for (let t = 1; t <= annees; t++) {
+      pv += (fcf0 * Math.pow(1 + cD, t)) / Math.pow(1 + wD, t)
+    }
+    const fcfT = fcf0 * Math.pow(1 + cD, annees) * (1 + tD)
+    const pvT = (fcfT / (wD - tD)) / Math.pow(1 + wD, annees)
+    return (pv + pvT) / shares
+  }
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+          Sensibilite DCF — Valeur intrinseque ({devise})
+        </div>
+        <button
+          type="button"
+          onClick={() => setInfoOpen(true)}
+          aria-label="En savoir plus sur la sensibilite DCF"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '.8rem', padding: '0 2px', lineHeight: 1 }}
+        >&#9432;</button>
+        {infoOpen && createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', padding: 20 }}
+            onClick={() => setInfoOpen(false)}
+          >
+            <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, maxWidth: 480, width: '100%' }}>
+              <div style={{ fontWeight: 700, marginBottom: 12 }}>Sensibilite DCF</div>
+              <p style={{ fontSize: '.85rem', color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 10 }}>
+                {METRIC_INFO['dcf_sensitivity'].def}
+              </p>
+              {METRIC_INFO['dcf_sensitivity'].niveaux.map(n => (
+                <div key={n.label} style={{ marginBottom: 8 }}>
+                  <span style={{ fontWeight: 600, color: n.color, fontSize: '.8rem' }}>{n.label} : </span>
+                  <span style={{ fontSize: '.8rem', color: 'var(--text-2)' }}>{n.desc}</span>
+                </div>
+              ))}
+              <p style={{ fontSize: '.75rem', color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic' }}>
+                {METRIC_INFO['dcf_sensitivity'].exemple}
+              </p>
+              <button type="button" onClick={() => setInfoOpen(false)} style={{ marginTop: 16, background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text)', padding: '6px 16px', cursor: 'pointer', fontSize: '.8rem' }}>Fermer</button>
+            </div>
+          </div>,
+          document.body
+        )}
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '.72rem', fontFamily: 'var(--mono)' }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '4px 8px', color: 'var(--text-3)', textAlign: 'left', fontWeight: 400, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                WACC \ Crois.
+              </th>
+              {croisSteps.map(dc => (
+                <th key={dc} style={{ padding: '4px 8px', color: dc === 0 ? 'var(--text)' : 'var(--text-3)', textAlign: 'right', fontWeight: dc === 0 ? 600 : 400, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  {(dc >= 0 ? '+' : '') + (dc + croisBase).toFixed(1)}%
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {waccSteps.map(dw => {
+              const wRow = waccBase + dw
+              return (
+                <tr key={dw}>
+                  <td style={{ padding: '4px 8px', color: dw === 0 ? 'var(--text)' : 'var(--text-3)', fontWeight: dw === 0 ? 600 : 400, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    {wRow}%
+                  </td>
+                  {croisSteps.map(dc => {
+                    const vi = calcVI(wRow, croisBase + dc)
+                    const isBase = dw === 0 && dc === 0
+                    const isUnder = vi != null && vi > cours
+                    const bg = isBase ? 'rgba(255,255,255,0.06)' : 'transparent'
+                    const color = vi == null ? 'var(--text-3)' : isUnder ? 'var(--green)' : 'var(--red)'
+                    return (
+                      <td key={dc} style={{ padding: '4px 8px', textAlign: 'right', borderBottom: '1px solid rgba(255,255,255,0.04)', background: bg, color, fontWeight: isBase ? 600 : 400 }}>
+                        {vi != null ? vi.toFixed(0) : '—'}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 6, fontSize: '.62rem', color: 'var(--text-3)', fontStyle: 'italic' }}>
+        Vert = valeur superieure au cours actuel ({cours?.toFixed(2)} {devise}). Cellule centrale = hypotheses de base.
+      </div>
+    </div>
+  )
+}
+
 // ── DCF interactif ─────────────────────────────────────────
 
 function DCFModel({ d }) {
@@ -933,7 +1074,7 @@ function DCFModel({ d }) {
     </div>
   )
 
-  return (
+  return (<>
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
       <div>
         <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 12 }}>Hypothèses</div>
@@ -972,6 +1113,17 @@ function DCFModel({ d }) {
         </div>
       </div>
     </div>
+    <DCFSensitivity
+      fcf0={fcf0}
+      shares={shares}
+      cours={cours}
+      waccBase={wacc}
+      croisBase={croissance}
+      tgBase={tg}
+      annees={annees}
+      devise={d.devise}
+    />
+  </>
   )
 }
 
@@ -1069,6 +1221,192 @@ function computeScore(d) {
 
   return { total: normalised, details: scores }
 }
+
+// ── Comparaison sectorielle ────────────────────────────────
+
+function SectorComparison({ d }) {
+  const [infoOpen, setInfoOpen] = useState(false)
+  const benchmarks = SECTOR_BENCHMARKS[d?.secteur]
+  if (!benchmarks || !d) return null
+
+  const metrics = [
+    {
+      key: 'pe_forward', label: 'P/E forward', value: d.pe_forward, bench: benchmarks.pe_forward,
+      lowerIsBetter: true, fmt: v => v != null ? v.toFixed(1) : '—',
+    },
+    {
+      key: 'ev_ebitda', label: 'EV/EBITDA', value: d.ev_ebitda, bench: benchmarks.ev_ebitda,
+      lowerIsBetter: true, fmt: v => v != null ? v.toFixed(1) + 'x' : '—',
+    },
+    {
+      key: 'pb', label: 'P/B', value: d.pb, bench: benchmarks.pb,
+      lowerIsBetter: true, fmt: v => v != null ? v.toFixed(1) + 'x' : '—',
+    },
+    {
+      key: 'roic', label: 'ROIC', value: d.roic, bench: benchmarks.roic,
+      lowerIsBetter: false, fmt: v => v != null ? (v * 100).toFixed(1) + '%' : '—',
+    },
+    {
+      key: 'marge_nette', label: 'Marge nette', value: d.marge_nette, bench: benchmarks.marge_nette,
+      lowerIsBetter: false, fmt: v => v != null ? (v * 100).toFixed(1) + '%' : '—',
+    },
+    {
+      key: 'dette_nette_ebitda', label: 'Dette/EBITDA', value: d.dette_nette_ebitda, bench: benchmarks.dette_nette_ebitda,
+      lowerIsBetter: true, fmt: v => v != null ? v.toFixed(1) + 'x' : '—',
+    },
+  ].filter(m => m.bench != null && m.value != null)
+
+  if (metrics.length === 0) return null
+
+  const secteurFr = tr(SECTEUR_FR, d.secteur) || d.secteur
+
+  return (
+    <div className="card fade-up" style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="card-label" style={{ marginBottom: 0 }}>Comparaison sectorielle</div>
+          <button
+            type="button"
+            onClick={() => setInfoOpen(true)}
+            aria-label="En savoir plus"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '.8rem', padding: '0 2px', lineHeight: 1 }}
+          >&#9432;</button>
+          {infoOpen && createPortal(
+            <div
+              role="dialog"
+              aria-modal="true"
+              style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', padding: 20 }}
+              onClick={() => setInfoOpen(false)}
+            >
+              <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, maxWidth: 480, width: '100%' }}>
+                <div style={{ fontWeight: 700, marginBottom: 12 }}>Comparaison sectorielle</div>
+                <p style={{ fontSize: '.85rem', color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 10 }}>
+                  {METRIC_INFO['sector_comparison'].def}
+                </p>
+                {METRIC_INFO['sector_comparison'].niveaux.map(n => (
+                  <div key={n.label} style={{ marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600, color: n.color, fontSize: '.8rem' }}>{n.label} : </span>
+                    <span style={{ fontSize: '.8rem', color: 'var(--text-2)' }}>{n.desc}</span>
+                  </div>
+                ))}
+                <p style={{ fontSize: '.75rem', color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic' }}>
+                  {METRIC_INFO['sector_comparison'].exemple}
+                </p>
+                <button type="button" onClick={() => setInfoOpen(false)} style={{ marginTop: 16, background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text)', padding: '6px 16px', cursor: 'pointer', fontSize: '.8rem' }}>Fermer</button>
+              </div>
+            </div>,
+            document.body
+          )}
+        </div>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>vs mediane {secteurFr}</span>
+      </div>
+      <div style={{ display: 'grid', gap: 2 }}>
+        {metrics.map(({ key, label, value, bench, lowerIsBetter, fmt }) => {
+          const better = lowerIsBetter ? value < bench : value > bench
+          const diff = Math.abs(((value - bench) / bench) * 100)
+          const color = better ? 'var(--green)' : 'var(--red)'
+          return (
+            <div key={key} style={{ display: 'grid', gridTemplateColumns: '130px 1fr 70px 70px', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              <div style={{ fontSize: '.75rem', color: 'var(--text-2)' }}>{label}</div>
+              <div style={{ height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+                <div style={{
+                  position: 'absolute', left: 0, top: 0, height: '100%',
+                  width: `${Math.min(diff * 2, 100)}%`,
+                  background: color, borderRadius: 2, opacity: 0.65,
+                }} />
+              </div>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: '.78rem', color, fontWeight: 600, textAlign: 'right' }}>
+                {fmt(value)}
+              </span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: '.7rem', color: 'var(--text-3)', textAlign: 'right' }}>
+                vs {fmt(bench)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ marginTop: 10, fontSize: '.65rem', color: 'var(--text-3)', fontStyle: 'italic' }}>
+        Medianes sectorielles indicatives — source interne. A lire en complement d&apos;une analyse approfondie.
+      </div>
+    </div>
+  )
+}
+
+// ── Memo Grok proactif ─────────────────────────────────────
+
+function MemoGrok({ memo, loading, error, onRetry }) {
+  const [infoOpen, setInfoOpen] = useState(false)
+
+  const htmlContent = memo
+    ? DOMPurify.sanitize(marked.parse(memo))
+    : null
+
+  return (
+    <div className="card fade-up" style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="card-label" style={{ marginBottom: 0 }}>Memo Grok</div>
+          <button
+            type="button"
+            onClick={() => setInfoOpen(true)}
+            aria-label="En savoir plus sur le memo Grok"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: '.8rem', padding: '0 2px', lineHeight: 1 }}
+          >&#9432;</button>
+          {infoOpen && createPortal(
+            <div
+              role="dialog"
+              aria-modal="true"
+              style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', padding: 20 }}
+              onClick={() => setInfoOpen(false)}
+            >
+              <div onClick={e => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, maxWidth: 480, width: '100%' }}>
+                <div style={{ fontWeight: 700, marginBottom: 12 }}>Memo Grok</div>
+                <p style={{ fontSize: '.85rem', color: 'var(--text-2)', lineHeight: 1.7, marginBottom: 10 }}>
+                  {METRIC_INFO['memo_grok'].def}
+                </p>
+                <p style={{ fontSize: '.75rem', color: 'var(--text-3)', fontStyle: 'italic' }}>
+                  {METRIC_INFO['memo_grok'].exemple}
+                </p>
+                <button type="button" onClick={() => setInfoOpen(false)} style={{ marginTop: 16, background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: 'var(--text)', padding: '6px 16px', cursor: 'pointer', fontSize: '.8rem' }}>Fermer</button>
+              </div>
+            </div>,
+            document.body
+          )}
+        </div>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Analyse factuelle · pas un conseil</span>
+      </div>
+
+      {loading && (
+        <div style={{ color: 'var(--text-3)', fontSize: '.82rem', fontFamily: 'var(--mono)' }}>
+          Generation du memo en cours…
+        </div>
+      )}
+      {error && !loading && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ color: 'var(--red)', fontSize: '.82rem' }}>{error}</span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              style={{ background: 'none', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, color: 'var(--text-2)', padding: '3px 10px', cursor: 'pointer', fontSize: '.75rem' }}
+            >
+              Reessayer
+            </button>
+          )}
+        </div>
+      )}
+      {htmlContent && !loading && (
+        <div
+          className="grok-memo"
+          style={{ fontSize: '.83rem', lineHeight: 1.75, color: 'var(--text-2)' }}
+          dangerouslySetInnerHTML={{ __html: htmlContent }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Score global ───────────────────────────────────────────
 
 function ScoreGauge({ score }) {
   if (score == null) return null
@@ -1216,6 +1554,7 @@ function SectionHistorique({ history, loading }) {
     resultat_net: history.resultat_net?.[i],
     fcf: history.fcf?.[i],
     bpa: history.bpa?.[i],
+    pe: history.pe?.[i],
     marge_nette: history.marge_nette?.[i],
     marge_operationnelle: history.marge_operationnelle?.[i],
     marge_brute: history.marge_brute?.[i],
@@ -1240,6 +1579,18 @@ function SectionHistorique({ history, loading }) {
           <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>Free Cash Flow</div>
           <MiniBarChart data={chartData} dataKey="fcf" color="rgba(246,173,85,0.8)" label="FCF" />
         </div>
+        {chartData.some(pt => pt.pe != null) && (
+          <div>
+            <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+              P/E historique
+              <span
+                title="Price-to-Earnings historique : cours de fin d'annee divise par le BPA de l'annee. Permet d'evaluer si la valorisation actuelle est elevee ou basse par rapport a l'historique de l'entreprise."
+                style={{ cursor: 'help', color: 'var(--text-3)', fontSize: '.75rem' }}
+              >&#9432;</span>
+            </div>
+            <MiniBarChart data={chartData} dataKey="pe" color="rgba(167,139,250,0.8)" label="P/E" />
+          </div>
+        )}
         <div>
           <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>Marges (%)</div>
           <MargesChart data={chartData} />
@@ -1273,6 +1624,9 @@ export default function StockAnalyse() {
   const [error, setError] = useState('')
   const [showDesc, setShowDesc] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  const [memo, setMemo] = useState(null)
+  const [memoLoading, setMemoLoading] = useState(false)
+  const [memoError, setMemoError] = useState('')
   const suggestRef = useRef(null)
   const debounceRef = useRef(null)
 
@@ -1317,6 +1671,27 @@ export default function StockAnalyse() {
     }
   }
 
+  async function loadMemo(stockData, historyData) {
+    if (!stockData || stockData.source_limitee) return
+    setMemo(null)
+    setMemoError('')
+    setMemoLoading(true)
+    try {
+      const res = await fetch(`${BASE}/stock/memo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stock_data: stockData, history_data: historyData || null }),
+      })
+      const json = await res.json()
+      if (!json.ok) throw new Error(json.erreur || 'Erreur Grok')
+      setMemo(json.memo)
+    } catch (e) {
+      setMemoError(e?.message || 'Erreur lors de la generation du memo')
+    } finally {
+      setMemoLoading(false)
+    }
+  }
+
   async function loadStock(t, force = false) {
     setSuggestions([])
     const isNewTicker = t !== _store.currentTicker
@@ -1328,7 +1703,11 @@ export default function StockAnalyse() {
     setData(null)
     setError('')
     setShowDesc(false)
-    if (isNewTicker) setChatOpen(false)
+    if (isNewTicker) {
+      setChatOpen(false)
+      setMemo(null)
+      setMemoError('')
+    }
     setLoading(true)
     loadHistory(t)
     try {
@@ -1340,6 +1719,7 @@ export default function StockAnalyse() {
       if (!json.ok) throw new Error(json.erreur || 'Données introuvables')
       _store.data = json
       setData(json)
+      loadMemo(json, null)
     } catch (e) {
       setError(e?.message || 'Erreur de chargement')
     } finally {
@@ -1533,17 +1913,14 @@ export default function StockAnalyse() {
             )}
           </div>
 
-          {/* Score global */}
-          {(() => { const sc = computeScore(d); return sc ? (
-            <div className="card fade-up" style={{ marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
-                <div className="card-label">Score d&apos;investissement</div>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Indicatif · pas un conseil</span>
-              </div>
-              <ScoreGauge score={sc.total} />
-              <ScoreDetails details={sc.details} />
-            </div>
-          ) : null })()}
+          {!d.source_limitee && (
+            <MemoGrok
+              memo={memo}
+              loading={memoLoading}
+              error={memoError}
+              onRetry={() => loadMemo(data, history)}
+            />
+          )}
 
           {/* Cours & Marché */}
           <div className="g3 fade-up" style={{ marginBottom: 20 }}>
@@ -1595,6 +1972,8 @@ export default function StockAnalyse() {
                   <Stat label="EV/EBITDA" value={val(d.ev_ebitda)} infoKey="ev_ebitda" stockData={d} />
                 </div>
               </div>
+
+              <SectorComparison d={d} />
 
               {/* Valorisation FCF */}
               <div className="card fade-up" style={{ marginBottom: 20 }}>

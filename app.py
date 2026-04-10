@@ -4301,6 +4301,24 @@ def api_stock_historique(ticker):
     return jsonify({"ok": True, **data})
 
 
+@app.route("/api/stock/memo", methods=["POST"])
+def api_stock_memo():
+    payload = request.get_json(silent=True) or {}
+    stock_data = payload.get("stock_data", {})
+    history_data = payload.get("history_data", None)
+    if not stock_data or not stock_data.get("ticker"):
+        return jsonify({"ok": False, "erreur": "stock_data manquant"}), 400
+    if not _xai_api_key_configured():
+        return jsonify({
+            "ok": False,
+            "erreur": "Clé API xAI absente. Configurez XAI_API_KEY dans le fichier .env puis redémarrez Tomino.",
+        }), 503
+    texte, usage = grok.generer_memo_action(stock_data, history_data)
+    if texte.startswith("[ERREUR]"):
+        return jsonify({"ok": False, "erreur": texte}), 500
+    return jsonify({"ok": True, "memo": texte, "usage": usage})
+
+
 @app.route("/api/stock/<path:ticker>")
 def api_stock_fundamentals(ticker):
     ticker = str(ticker).strip().upper()

@@ -1454,6 +1454,35 @@ def get_stock_history(ticker: str) -> dict:
             mo_l.append(round(op  / rev, 4) if rev and op  is not None else None)
             mb_l.append(round(gp  / rev, 4) if rev and gp  is not None else None)
 
+        # Historical P/E per year: year-end price / BPA
+        pe_l = []
+        hist_prices = None
+        try:
+            hist_prices = t.history(period="6y", interval="1mo")
+        except Exception:
+            pass
+
+        for i, annee_str in enumerate(annees):
+            bpa = bpa_l[i]
+            if bpa is None or bpa == 0 or hist_prices is None or hist_prices.empty:
+                pe_l.append(None)
+                continue
+            try:
+                yr = int(annee_str)
+                mask = (hist_prices.index.year == yr) & (hist_prices.index.month == 12)
+                dec = hist_prices.loc[mask]
+                if dec.empty:
+                    mask2 = hist_prices.index.year == yr
+                    dec = hist_prices.loc[mask2]
+                if dec.empty:
+                    pe_l.append(None)
+                    continue
+                price_yr = float(dec["Close"].iloc[-1])
+                pe_val = round(price_yr / bpa, 1) if bpa > 0 else None
+                pe_l.append(pe_val)
+            except Exception:
+                pe_l.append(None)
+
         result = {
             "annees": annees,
             "ca": ca_l,
@@ -1465,6 +1494,7 @@ def get_stock_history(ticker: str) -> dict:
             "marge_nette": mn_l,
             "marge_operationnelle": mo_l,
             "marge_brute": mb_l,
+            "pe": pe_l,
         }
 
         with _cache_lock:

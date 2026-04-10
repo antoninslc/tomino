@@ -430,6 +430,8 @@ created_at TEXT DEFAULT (datetime('now'))
 | POST | `/api/chat` | Chat simple (non-streaming) |
 | POST | `/api/chat/stream` | Chat streaming SSE |
 | GET | `/api/stock/fundamentals/<ticker>` | Fondamentaux boursiers d'une action (valorisation, santé, dividendes, consensus analystes) |
+| GET | `/api/stock/historique/<ticker>` | Historique financier annuel 5 ans (CA, résultat net, FCF, marges, BPA, P/E historique) |
+| POST | `/api/stock/memo` | Génère un mémo d'investissement Grok (body: `{stock_data, history_data}`) — non-streaming, 5 sections |
 | POST | `/api/stock/chat/stream` | Chat streaming SSE contextualisé sur une action (body: `{messages, stock_data, conv_id}`) |
 | POST | `/api/demo/inject` | Injecte les données fictives de démo (actifs PEA, livrets, 30 jours d'historique) et passe `is_demo=1` |
 | POST | `/api/demo/reset` | Purge toutes les données métier et remet `is_demo=0` (retour à l'état vierge) |
@@ -563,6 +565,7 @@ mais la vraie contrainte est appliquée **côté serveur** dans `save_profil()` 
 - **Assurance vie UX** : `AssuranceVie.jsx` permet la gestion CRUD des contrats (nom, assureur, support, versements, valeur actuelle) avec édition inline.
 - **Chat UX** : `Chat.jsx` affiche une colonne d'historique des conversations à droite, un bouton icône `+` pour démarrer une nouvelle conversation (sans suppression d'historique), un indicateur rond d'utilisation IA (tooltip au hover), et un état « Tomino réfléchit » en texte surbrillant (sans points animés).
 - **Analyse UX** : `AnalyseIA.jsx` ne montre pas la consommation ; le blocage quota est affiché dans le bouton `Obtenir un rapport` avec compte à rebours de disponibilité.
+- **StockAnalyse UX** : `StockAnalyse.jsx` affiche dans l'ordre — identité + cours, mémo Grok proactif (`MemoGrok`), cours & marché, avertissement source limitée, historique financier (`SectionHistorique` : CA/résultat/FCF/marges + P/E historique si disponible), valorisation, comparaison sectorielle (`SectorComparison` vs médianes hardcodées `SECTOR_BENCHMARKS`), flux de trésorerie, santé financière, dividendes, DCF interactif + grille de sensibilité (`DCFSensitivity`), consensus analystes. Le score /100 (`ScoreGauge`) est masqué du rendu mais `computeScore()` reste utilisé pour le chat. Le mémo Grok se génère automatiquement au chargement d'un ticker via `POST /api/stock/memo` (appel `generer_memo_action()` dans `grok.py`, non-streaming, max 900 tokens). Chaque section possède une bulle informative (modal `createPortal`) via le composant `Stat` (infos métriques) ou un bouton &#9432; inline. Les médianes sectorielles (`SECTOR_BENCHMARKS`) sont hardcodées en frontend, pas d'API externe.
 - **Branding UX** : `Sidebar.jsx` affiche `Tomino+` en un seul mot quand l'abonnement Tomino + est actif, avec le `+` en doré.
 
 ### Accueil et mode découverte
