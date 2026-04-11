@@ -6,8 +6,7 @@ import {
   Bar, BarChart, CartesianGrid, ComposedChart, Line,
   ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
 } from 'recharts'
-
-const BASE = '/api'
+import { apiBase as BASE } from '../api'
 
 // ── Traductions ────────────────────────────────────────────
 const SECTEUR_FR = {
@@ -731,12 +730,14 @@ function useStreamingChat() {
     const next = [...messages, { role: 'user', content }, { role: 'assistant', content: '' }]
     setMessages(next)
 
+    const controller = new AbortController()
+    abortRef.current = controller
+    const timer = setTimeout(() => controller.abort(), 90000)
     try {
-      abortRef.current = new AbortController()
       const res = await fetch(`${BASE}/stock/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: abortRef.current.signal,
+        signal: controller.signal,
         body: JSON.stringify({
           messages: next.slice(0, -1),
           stock_data: stockData,
@@ -768,7 +769,6 @@ function useStreamingChat() {
             if (!line.startsWith('data:')) continue
             let data
             try { data = JSON.parse(line.replace(/^data:\s*/, '')) } catch { continue }
-            if (data.done) { setSending(false); continue }
             if (typeof data.delta === 'string') {
               setMessages((prev) => {
                 const updated = [...prev]
@@ -781,7 +781,10 @@ function useStreamingChat() {
         if (done) break
       }
     } catch (e) {
-      if (e?.name !== 'AbortError') setError(e?.message || 'Erreur de connexion')
+      if (e?.name === 'AbortError') setError('Délai dépassé — réessayez.')
+      else if (e?.name !== 'AbortError') setError(e?.message || 'Erreur de connexion')
+    } finally {
+      clearTimeout(timer)
       setSending(false)
     }
   }

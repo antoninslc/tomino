@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { api } from '../api'
+import { api, apiBase } from '../api'
 import CustomSelect from '../components/CustomSelect'
 import PlusBadge from '../components/PlusBadge'
 import DateInput from '../components/DateInput'
@@ -874,7 +874,8 @@ export default function Settings() {
       Authorization: `Bearer ${token}`,
     }
 
-    const response = await fetch(pathname, { ...options, headers })
+    const url = pathname.startsWith('/api') ? apiBase + pathname.slice('/api'.length) : pathname
+    const response = await fetch(url, { ...options, headers })
     if (!response.ok) {
       if (response.status === 401) {
         setSyncAuthToken('')
@@ -941,7 +942,7 @@ export default function Settings() {
 
     setSyncEntryLoading(true)
     try {
-      const response = await fetch('/api/billing/subscription', {
+      const response = await fetch(apiBase + '/billing/subscription', {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (response.status === 401) {
@@ -970,7 +971,7 @@ export default function Settings() {
     setSyncAuthSaving(true)
     try {
       const selectedRegisterTier = syncAuthMode === 'register' ? String(syncAuthTier || 'free').toLowerCase() : 'free'
-      const endpoint = syncAuthMode === 'register' ? '/api/auth/register' : '/api/auth/login'
+      const endpoint = syncAuthMode === 'register' ? apiBase + '/auth/register' : apiBase + '/auth/login'
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -991,7 +992,7 @@ export default function Settings() {
       rememberSyncSession(freshToken, payload?.device?.device_id || syncDeviceId)
 
       if (syncAuthMode === 'register' && selectedRegisterTier === 'tomino_plus') {
-        const checkoutResponse = await fetch('/api/billing/checkout-session', {
+        const checkoutResponse = await fetch(apiBase + '/billing/checkout-session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1099,7 +1100,7 @@ export default function Settings() {
       const token = String(syncAuthToken || '').trim()
       if (!token) throw new Error('Connexion requise pour modifier le forfait.')
 
-      const response = await fetch('/api/billing/change-plan', {
+      const response = await fetch(apiBase + '/billing/change-plan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1169,7 +1170,7 @@ export default function Settings() {
     setError('')
     try {
       const params = new URLSearchParams({ include_ia: includeIaInPdf ? '1' : '0' })
-      const response = await fetch(`/api/export/pdf/patrimoine?${params.toString()}`)
+      const response = await fetch(apiBase + `/export/pdf/patrimoine?${params.toString()}`)
       if (!response.ok) {
         throw new Error(await parseApiErrorResponse(response, 'Export PDF impossible'))
       }
@@ -1187,7 +1188,7 @@ export default function Settings() {
     setExportingCsvMouvements(true)
     setError('')
     try {
-      const response = await fetch('/api/export/csv/mouvements')
+      const response = await fetch(apiBase + '/export/csv/mouvements')
       if (!response.ok) {
         throw new Error(await parseApiErrorResponse(response, 'Export CSV mouvements impossible'))
       }
@@ -1204,7 +1205,7 @@ export default function Settings() {
     setExportingCsvDividendes(true)
     setError('')
     try {
-      const response = await fetch('/api/export/csv/dividendes')
+      const response = await fetch(apiBase + '/export/csv/dividendes')
       if (!response.ok) {
         throw new Error(await parseApiErrorResponse(response, 'Export CSV dividendes impossible'))
       }
@@ -1222,7 +1223,7 @@ export default function Settings() {
     setError('')
     try {
       const params = new URLSearchParams({ annee: String(exportFiscalYear || '') })
-      const response = await fetch(`/api/export/csv/fiscal?${params.toString()}`)
+      const response = await fetch(apiBase + `/export/csv/fiscal?${params.toString()}`)
       if (!response.ok) {
         throw new Error(await parseApiErrorResponse(response, 'Export CSV fiscal impossible'))
       }
@@ -1247,7 +1248,7 @@ export default function Settings() {
         throw new Error('La confirmation du mot de passe ne correspond pas.')
       }
 
-      const response = await fetch('/api/export/backup', {
+      const response = await fetch(apiBase + '/export/backup', {
         method: pwd ? 'POST' : 'GET',
         headers: pwd ? { 'Content-Type': 'application/json' } : undefined,
         body: pwd ? JSON.stringify({ password: pwd }) : undefined,
@@ -1293,7 +1294,7 @@ export default function Settings() {
     setOpeningAutoBackupFolder(true)
     setError('')
     try {
-      const response = await fetch('/api/backup/auto/open-folder', { method: 'POST' })
+      const response = await fetch(apiBase + '/backup/auto/open-folder', { method: 'POST' })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || payload?.ok === false) {
         throw new Error(payload?.erreur || "Impossible d'ouvrir le dossier des sauvegardes.")
@@ -1317,7 +1318,7 @@ export default function Settings() {
       if (restorePassword) formData.append('password', restorePassword)
       formData.append('confirm_restore', '1')
 
-      const response = await fetch('/api/import/backup', {
+      const response = await fetch(apiBase + '/import/backup', {
         method: 'POST',
         body: formData,
       })
@@ -1352,7 +1353,7 @@ export default function Settings() {
       formData.append('backup', file)
       if (restorePassword) formData.append('password', restorePassword)
 
-      const response = await fetch('/api/import/backup/verify', {
+      const response = await fetch(apiBase + '/import/backup/verify', {
         method: 'POST',
         body: formData,
       })

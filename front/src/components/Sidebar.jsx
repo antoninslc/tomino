@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { apiBase } from '../api'
 
 const SYNC_AUTH_TOKEN_KEY = 'tomino_sync_auth_token'
 
@@ -214,7 +215,7 @@ export default function Sidebar() {
       }
 
       try {
-        const response = await fetch('/api/billing/subscription', {
+        const response = await fetch(apiBase + '/billing/subscription', {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!response.ok) {
@@ -248,7 +249,7 @@ export default function Sidebar() {
     let mounted = true
     async function loadTriggered() {
       try {
-        const res = await fetch('/api/alertes')
+        const res = await fetch(apiBase + '/alertes')
         if (!res.ok) return
         const data = await res.json().catch(() => ({}))
         const lastSeen = localStorage.getItem('tomino_notifs_last_seen')

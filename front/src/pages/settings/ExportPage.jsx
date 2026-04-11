@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { apiBase } from '../../api'
 
 export default function ExportPage({ ctx }) {
   const { BackHeader, navigate } = ctx
@@ -7,7 +8,7 @@ export default function ExportPage({ ctx }) {
 
   useEffect(() => {
     let mounted = true
-    fetch('/api/data-dir')
+    fetch(apiBase + '/data-dir')
       .then(r => r.json())
       .then(d => { if (mounted) { setDataDir(d?.data_dir || null); setFrozen(Boolean(d?.frozen)) } })
       .catch(() => {})

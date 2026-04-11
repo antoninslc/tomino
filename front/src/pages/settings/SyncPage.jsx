@@ -1,4 +1,5 @@
 import React from 'react'
+import { apiBase } from '../../api'
 
 export default function SyncPage({ ctx }) {
   const {
@@ -41,7 +42,7 @@ export default function SyncPage({ ctx }) {
     if (!trimmedName || !currentDevice) return
     setRenameError('')
     try {
-      const response = await fetch('/api/devices/rename', {
+      const response = await fetch(apiBase + '/devices/rename', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${syncAuthToken}` },
         body: JSON.stringify({ device_id: syncCurrentDeviceId || syncDeviceId, device_label: trimmedName }),

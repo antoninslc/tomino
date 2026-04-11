@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api'
+import { api, apiBase } from '../api'
 
 export default function Welcome() {
   const navigate = useNavigate()
@@ -32,7 +32,7 @@ export default function Welcome() {
       const formData = new FormData()
       formData.append('backup', file)
       formData.append('confirm_restore', '1')
-      const res = await fetch('/api/import/backup', { method: 'POST', body: formData })
+      const res = await fetch(apiBase + '/import/backup', { method: 'POST', body: formData })
       const payload = await res.json().catch(() => ({}))
       if (!res.ok || payload?.ok === false) throw new Error(payload?.erreur || 'Fichier de sauvegarde invalide ou incompatible.')
       window.location.href = '/'

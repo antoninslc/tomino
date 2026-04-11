@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
-import { api } from '../api'
+import { api, apiBase } from '../api'
 import IaConsentModal, { hasIaConsent } from '../components/IaConsentModal'
 
 const STORAGE_KEY = 'tomino_chat_messages'
@@ -238,7 +238,7 @@ export default function Chat() {
 
     try {
       abortRef.current = new AbortController()
-      const res = await fetch('/api/chat/stream', {
+      const res = await fetch(apiBase + '/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: abortRef.current.signal,
@@ -284,7 +284,6 @@ export default function Chat() {
             }
 
             if (data.done) {
-              setSending(false)
               continue
             }
 
@@ -364,6 +363,7 @@ export default function Chat() {
           return copy
         })
       }
+    } finally {
       setSending(false)
     }
   }
