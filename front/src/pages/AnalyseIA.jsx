@@ -365,7 +365,7 @@ export default function Analyse() {
                       <div className="btn-sub">{item.sub}</div>
                     </div>
                     {dejaFaite && (
-                      <span className="badge badge-dim btn-done-today" style={{ fontSize: '0.62rem' }}>Fait</span>
+                      <span className="btn-done-today">Fait</span>
                     )}
                   </button>
                 )
