@@ -42,7 +42,8 @@
       ],
       "targets": [
         "nsis",
-        "msi"
+        "msi",
+        "updater"
       ],
       "windows": {
         "certificateThumbprint": null,
@@ -75,7 +76,7 @@
     "updater": {
       "active": true,
       "dialog": false,
-      "pubkey": "RWQFE+EZHfPIP5H6FemLwkH7AsCHDr31gou+dtaaJp6lvhxJ8n+PTyQ1",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzRDFDODYxMDQ0NkM3NDcKUldSSHgwWUVZY2pSODZNdEhkVlhNYlNGV1JFdTVtR1BZMlVleGNsR1p2ZGtjZlNXc2lLYStLR00K",
       "endpoints": [
         "https://github.com/antoninslc/tomino/releases/latest/download/latest.json"
       ],
