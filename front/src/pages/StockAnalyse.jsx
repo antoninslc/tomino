@@ -1688,18 +1688,23 @@ export default function StockAnalyse() {
     setMemo(null)
     setMemoError('')
     setMemoLoading(true)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 75000)
     try {
       const res = await fetch(`${BASE}/stock/memo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stock_data: stockData, history_data: historyData || null }),
+        signal: controller.signal,
       })
       const json = await res.json()
       if (!json.ok) throw new Error(json.erreur || 'Erreur Grok')
       setMemo(json.memo)
     } catch (e) {
-      setMemoError(e?.message || 'Erreur lors de la generation du memo')
+      if (e?.name === 'AbortError') setMemoError('Délai dépassé — réessayez.')
+      else setMemoError(e?.message || 'Erreur lors de la generation du memo')
     } finally {
+      clearTimeout(timer)
       setMemoLoading(false)
     }
   }
@@ -1723,19 +1728,23 @@ export default function StockAnalyse() {
     }
     setLoading(true)
     loadHistory(t)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30000)
     try {
       const url = force
         ? `${BASE}/stock/${encodeURIComponent(t)}?force=1`
         : `${BASE}/stock/${encodeURIComponent(t)}`
-      const res = await fetch(url)
+      const res = await fetch(url, { signal: controller.signal })
       const json = await res.json()
       if (!json.ok) throw new Error(json.erreur || 'Données introuvables')
       _store.data = json
       setData(json)
       loadMemo(json, null)
     } catch (e) {
-      setError(e?.message || 'Erreur de chargement')
+      if (e?.name === 'AbortError') setError('Délai dépassé — réessayez.')
+      else setError(e?.message || 'Erreur de chargement')
     } finally {
+      clearTimeout(timer)
       setLoading(false)
     }
   }

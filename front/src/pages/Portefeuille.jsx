@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api } from '../api'
+import { api, apiBase } from '../api'
 import CustomSelect from '../components/CustomSelect'
 import Pagination from '../components/Pagination'
 import DateInput from '../components/DateInput'
@@ -122,6 +122,8 @@ export default function Portefeuille() {
   const [opDeleting, setOpDeleting] = useState(false)
   const [movPage, setMovPage] = useState(1)
   const [snapModal, setSnapModal] = useState({ open: false })
+  const [csvModal, setCsvModal] = useState({ open: false, rows: [], loading: false, importing: false, enveloppe: env })
+  const csvFileRef = useRef(null)
   const [snapForm, setSnapForm] = useState({ nom: '', ticker: '', type: 'etf', categorie: 'coeur', quantite: '', pru: '', date_debut: new Date().toISOString().slice(0, 10) })
   const [snapSaving, setSnapSaving] = useState(false)
   const [snapSugg, setSnapSugg] = useState([])
@@ -465,6 +467,64 @@ export default function Portefeuille() {
     }
   }
 
+  function openCsvModal() {
+    setCsvModal({ open: true, rows: [], loading: false, importing: false, enveloppe: env })
+  }
+
+  function closeCsvModal() {
+    setCsvModal(m => ({ ...m, open: false }))
+  }
+
+  async function handleCsvFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCsvModal(m => ({ ...m, loading: true, rows: [] }))
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(apiBase + '/import/csv/positions', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (!data.ok) throw new Error(data.erreur || 'Erreur parsing CSV')
+      setCsvModal(m => ({ ...m, rows: data.positions.map(p => ({ ...p, _include: true })), loading: false }))
+    } catch (err) {
+      alert(err.message || 'Erreur lors de la lecture du CSV')
+      setCsvModal(m => ({ ...m, loading: false }))
+    }
+    e.target.value = ''
+  }
+
+  async function submitCsvImport() {
+    const { rows, enveloppe } = csvModal
+    const toImport = rows.filter(r => r._include && r.ticker)
+    if (!toImport.length) return
+    setCsvModal(m => ({ ...m, importing: true }))
+    let ok = 0, errors = []
+    for (const r of toImport) {
+      try {
+        const res = await api.post('/actifs/snapshot', {
+          enveloppe,
+          nom: r.nom,
+          ticker: r.ticker,
+          type: r.type,
+          categorie: r.categorie,
+          quantite: r.quantite,
+          pru: r.pru,
+          date_debut: r.date_debut,
+        })
+        if (res?.ok) ok++
+        else errors.push(r.ticker)
+      } catch {
+        errors.push(r.ticker)
+      }
+    }
+    setCsvModal(m => ({ ...m, importing: false }))
+    if (errors.length) alert(`${ok} position(s) importée(s). Échecs : ${errors.join(', ')}`)
+    else {
+      closeCsvModal()
+      loadActifs()
+    }
+  }
+
   function openSnapModal() {
     setSnapModal({ open: true })
     setSnapForm({ nom: '', ticker: '', type: 'etf', categorie: 'coeur', quantite: '', pru: '', date_debut: new Date().toISOString().slice(0, 10) })
@@ -730,6 +790,7 @@ export default function Portefeuille() {
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-primary btn-sm" onClick={openInlineForm}>+ Nouvelle ligne</button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={openSnapModal}>Importer positions existantes</button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={openCsvModal}>Importer CSV broker</button>
             </div>
           )}
 
@@ -1156,6 +1217,81 @@ export default function Portefeuille() {
                 {snapAdded.length > 0 ? 'Terminer' : 'Annuler'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {csvModal.open && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={e => { if (e.target === e.currentTarget) closeCsvModal() }}>
+          <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 18, padding: 28, width: '100%', maxWidth: 700, maxHeight: '85vh', overflowY: 'auto' }}>
+            <div className="card-label" style={{ marginBottom: 16 }}>Importer CSV broker</div>
+
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
+              <select
+                value={csvModal.enveloppe}
+                onChange={e => setCsvModal(m => ({ ...m, enveloppe: e.target.value }))}
+                style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', color: 'var(--text)', fontSize: '.88rem' }}
+              >
+                <option value="PEA">PEA</option>
+                <option value="CTO">CTO</option>
+              </select>
+              <input ref={csvFileRef} type="file" accept=".csv,.txt" style={{ display: 'none' }} onChange={handleCsvFile} />
+              <button className="btn btn-ghost btn-sm" onClick={() => csvFileRef.current?.click()} disabled={csvModal.loading}>
+                {csvModal.loading ? 'Lecture...' : 'Choisir un fichier CSV'}
+              </button>
+              <span style={{ fontSize: '.78rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>Boursorama · Fortuneo</span>
+            </div>
+
+            {csvModal.rows.length > 0 && (
+              <>
+                <div style={{ fontSize: '.78rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 10 }}>
+                  {csvModal.rows.length} position(s) détectée(s) — vérifiez les tickers avant d'importer
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.83rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-3)', fontFamily: 'var(--mono)', fontSize: '.72rem' }}>
+                      <th style={{ padding: '6px 4px', textAlign: 'left' }}></th>
+                      <th style={{ padding: '6px 4px', textAlign: 'left' }}>Nom</th>
+                      <th style={{ padding: '6px 4px', textAlign: 'left' }}>Ticker</th>
+                      <th style={{ padding: '6px 4px', textAlign: 'right' }}>Qté</th>
+                      <th style={{ padding: '6px 4px', textAlign: 'right' }}>PRU</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvModal.rows.map((row, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)', opacity: row._include ? 1 : 0.4 }}>
+                        <td style={{ padding: '6px 4px' }}>
+                          <input type="checkbox" checked={row._include} onChange={e => setCsvModal(m => ({ ...m, rows: m.rows.map((r, j) => j === i ? { ...r, _include: e.target.checked } : r) }))} />
+                        </td>
+                        <td style={{ padding: '6px 4px', color: 'var(--text-2)' }}>{row.nom_original}</td>
+                        <td style={{ padding: '6px 4px' }}>
+                          <input
+                            value={row.ticker}
+                            onChange={e => setCsvModal(m => ({ ...m, rows: m.rows.map((r, j) => j === i ? { ...r, ticker: e.target.value.toUpperCase() } : r) }))}
+                            placeholder="ex: AIR.PA"
+                            style={{ background: 'var(--bg)', border: `1px solid ${row.ticker_resolu ? 'rgba(24,195,126,.4)' : 'rgba(255,100,100,.4)'}`, borderRadius: 6, padding: '3px 7px', color: 'var(--text)', width: 110, fontSize: '.82rem', fontFamily: 'var(--mono)' }}
+                          />
+                        </td>
+                        <td style={{ padding: '6px 4px', textAlign: 'right', fontFamily: 'var(--mono)' }}>{row.quantite}</td>
+                        <td style={{ padding: '6px 4px', textAlign: 'right', fontFamily: 'var(--mono)' }}>{row.pru}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button className="btn btn-ghost" onClick={closeCsvModal}>Annuler</button>
+                  <button className="btn btn-primary" onClick={submitCsvImport} disabled={csvModal.importing || !csvModal.rows.some(r => r._include && r.ticker)}>
+                    {csvModal.importing ? 'Import...' : `Importer ${csvModal.rows.filter(r => r._include && r.ticker).length} position(s)`}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {!csvModal.rows.length && !csvModal.loading && (
+              <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: '.85rem', padding: '20px 0' }}>
+                Exportez vos positions depuis votre espace broker (CSV), puis chargez le fichier ici.
+              </div>
+            )}
           </div>
         </div>
       )}

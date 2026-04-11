@@ -3859,6 +3859,78 @@ def api_backup_auto_open_folder():
         return jsonify({"ok": False, "erreur": "Impossible d'ouvrir le dossier des sauvegardes."}), 500
 
 
+@app.route("/api/import/csv/positions", methods=["POST"])
+def api_import_csv_positions():
+    """Parse un CSV de positions broker (Boursorama, Fortuneo) et résout les tickers via Yahoo Finance."""
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"ok": False, "erreur": "Fichier manquant."}), 400
+
+    try:
+        content = file.read().decode("utf-8-sig")
+    except Exception:
+        return jsonify({"ok": False, "erreur": "Impossible de lire le fichier (encodage)."}), 400
+
+    import io as _io
+    reader = csv.DictReader(_io.StringIO(content), delimiter=";")
+
+    def _parse_num(val):
+        if not val:
+            return 0.0
+        return float(str(val).replace(" ", "").replace("\xa0", "").replace(",", ".").strip('"'))
+
+    def _resolve_ticker(isin, name):
+        """Cherche le ticker Yahoo Finance via l'ISIN, fallback sur le nom."""
+        for query in [isin, name]:
+            if not query:
+                continue
+            try:
+                url = "https://query1.finance.yahoo.com/v1/finance/search"
+                params = {"q": query, "quotesCount": 5, "newsCount": 0, "listsCount": 0}
+                r = prices.SESSION.get(url, params=params, timeout=4)
+                quotes = r.json().get("quotes") or []
+                for item in quotes:
+                    ticker = item.get("symbol", "")
+                    if not ticker or prices._ISIN_TICKER.match(ticker):
+                        continue
+                    if item.get("quoteType", "").upper() not in ("EQUITY", "ETF", "MUTUALFUND"):
+                        continue
+                    raw_name = item.get("shortname") or item.get("longname") or ticker
+                    return ticker, raw_name.split("\t")[0].strip()
+            except Exception:
+                continue
+        return "", name
+
+    rows = []
+    for row in reader:
+        name = str(row.get("name") or row.get("nom") or "").strip().strip('"')
+        isin = str(row.get("isin") or row.get("ISIN") or "").strip()
+        qty = _parse_num(row.get("quantity") or row.get("quantite") or row.get("qty"))
+        pru = _parse_num(row.get("buyingPrice") or row.get("pru") or row.get("PRU") or row.get("cours_achat"))
+        date = str(row.get("lastMovementDate") or row.get("date") or "").strip()
+
+        if not name or qty <= 0:
+            continue
+
+        ticker, resolved_name = _resolve_ticker(isin, name)
+        inferred_type = "etf" if any(k in name.upper() for k in ("ETF", "UCITS", "INDEX", "TRACKER")) else "action"
+
+        rows.append({
+            "nom": resolved_name or name,
+            "nom_original": name,
+            "isin": isin,
+            "ticker": ticker,
+            "quantite": qty,
+            "pru": pru,
+            "date_debut": date[:10] if len(date) >= 10 else "",
+            "type": inferred_type,
+            "categorie": "coeur",
+            "ticker_resolu": bool(ticker),
+        })
+
+    return jsonify({"ok": True, "positions": rows})
+
+
 @app.route("/api/import/backup", methods=["POST"])
 def api_import_backup():
     upload = request.files.get("backup") or request.files.get("file")

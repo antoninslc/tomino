@@ -90,3 +90,4 @@ async function del(path) {
 }
 
 export const api = { get, post, put, del }
+export const apiBase = BASE
