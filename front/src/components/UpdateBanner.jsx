@@ -60,41 +60,36 @@ export default function UpdateBanner() {
     <div
       style={{
         position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
+        bottom: 24,
+        right: 24,
         zIndex: 200,
-        backgroundColor: 'rgba(201,168,76,0.12)',
-        borderBottom: '1px solid rgba(201,168,76,0.35)',
-        padding: '12px 20px',
+        backgroundColor: 'var(--bg-2)',
+        border: '1px solid rgba(201,168,76,0.35)',
+        borderRadius: 10,
+        padding: '12px 16px',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        animation: 'slideDown 0.3s ease-out',
-        backdropFilter: 'blur(8px)',
+        gap: 16,
+        boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
+        animation: 'slideUp 0.25s ease-out',
       }}
     >
-      <div>
-        <div style={{ color: '#e8e3dc', fontWeight: '500', marginBottom: 4 }}>
-          Tomino {updateInfo.version} est disponible
-        </div>
-        <div style={{ color: '#8a8480', fontSize: '0.85rem', lineHeight: 1.4, maxWidth: '600px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-          {updateInfo.notes}
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: '8px' }}>
+      <span style={{ color: 'var(--text)', fontWeight: 500, fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
+        Tomino {updateInfo.version} est disponible
+      </span>
+      <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn btn-ghost btn-sm" onClick={handleDismiss} disabled={installing}>
           Plus tard
         </button>
         <button className="btn btn-primary btn-sm" onClick={handleInstall} disabled={installing}>
-          {installing ? 'Installation...' : 'Installer maintenant'}
+          {installing ? 'Installation...' : 'Installer'}
         </button>
       </div>
 
       <style dangerouslySetInnerHTML={{__html: `
-        @keyframes slideDown {
-          from { transform: translateY(-100%); }
-          to { transform: translateY(0); }
+        @keyframes slideUp {
+          from { transform: translateY(12px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
       `}} />
     </div>
