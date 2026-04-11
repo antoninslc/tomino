@@ -204,16 +204,28 @@
           </ul>
 
           <div class="actions">
-            <a
-              class="btn-primary"
-              href="https://github.com/antoninslc/tomino/releases/latest/download/Tomino_0.2.1_x64-setup.exe"
-            >
+            <a id="dl-btn" class="btn-primary" href="https://github.com/antoninslc/tomino/releases">
               Télécharger pour Windows
             </a>
             <a class="btn-secondary" href="https://github.com/antoninslc/tomino/releases">Voir les releases GitHub</a>
           </div>
 
-          <p class="meta"><strong>Windows 10/11</strong> · Gratuit · Aucun compte requis</p>
+          <p class="meta"><strong>Windows 10/11</strong> · Gratuit · Aucun compte requis · <span id="dl-version"></span></p>
+
+          <script>
+            fetch('https://api.github.com/repos/antoninslc/tomino/releases/latest')
+              .then(r => r.json())
+              .then(data => {
+                const exe = (data.assets || []).find(a => a.name.endsWith('-setup.exe'))
+                if (exe) {
+                  document.getElementById('dl-btn').href = exe.browser_download_url
+                }
+                if (data.tag_name) {
+                  document.getElementById('dl-version').textContent = data.tag_name
+                }
+              })
+              .catch(() => {})
+          </script>
         </article>
       </section>
     </main>
