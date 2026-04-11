@@ -295,7 +295,7 @@ export default function Analyse() {
         <div className="hero-copy">
           <div className="hero-kicker">Analyse de patrimoine</div>
           <h1 className="hero-title" style={{ maxWidth: 'none' }}>Tomino Intelligence.</h1>
-          <p className="hero-subtitle">Analyse contextuelle de votre patrimoine par Grok-3. Choisissez un axe d'analyse ci-contre.</p>
+          <p className="hero-subtitle">Analyse contextuelle de votre patrimoine par Grok. Choisissez un axe d'analyse ci-contre.</p>
         </div>
       </section>
 
