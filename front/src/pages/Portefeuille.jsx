@@ -1235,9 +1235,9 @@ export default function Portefeuille() {
                 <option value="PEA">PEA</option>
                 <option value="CTO">CTO</option>
               </select>
-              <input ref={csvFileRef} type="file" accept=".csv,.txt" style={{ display: 'none' }} onChange={handleCsvFile} />
+              <input ref={csvFileRef} type="file" accept=".csv,.txt,.xls,.xlsx" style={{ display: 'none' }} onChange={handleCsvFile} />
               <button className="btn btn-ghost btn-sm" onClick={() => csvFileRef.current?.click()} disabled={csvModal.loading}>
-                {csvModal.loading ? 'Lecture...' : 'Choisir un fichier CSV'}
+                {csvModal.loading ? 'Lecture...' : 'Choisir un fichier (CSV ou XLS)'}
               </button>
               <span style={{ fontSize: '.78rem', color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>Boursorama · Fortuneo</span>
             </div>

@@ -3861,23 +3861,24 @@ def api_backup_auto_open_folder():
 
 @app.route("/api/import/csv/positions", methods=["POST"])
 def api_import_csv_positions():
-    """Parse un CSV de positions broker (Boursorama, Fortuneo) et résout les tickers via Yahoo Finance."""
+    """Parse un fichier de positions broker (Boursorama CSV, Fortuneo XLS) et résout les tickers via Yahoo Finance."""
+    import io as _io
+    import re as _re
+
     file = request.files.get("file")
     if not file:
         return jsonify({"ok": False, "erreur": "Fichier manquant."}), 400
 
-    try:
-        content = file.read().decode("utf-8-sig")
-    except Exception:
-        return jsonify({"ok": False, "erreur": "Impossible de lire le fichier (encodage)."}), 400
-
-    import io as _io
-    reader = csv.DictReader(_io.StringIO(content), delimiter=";")
+    filename = str(file.filename or "").lower()
+    file_bytes = file.read()
 
     def _parse_num(val):
-        if not val:
+        if val is None or str(val).strip() == "":
             return 0.0
-        return float(str(val).replace(" ", "").replace("\xa0", "").replace(",", ".").strip('"'))
+        try:
+            return float(str(val).replace(" ", "").replace("\xa0", "").replace(",", ".").strip('"'))
+        except (ValueError, TypeError):
+            return 0.0
 
     def _resolve_ticker(isin, name):
         """Cherche le ticker Yahoo Finance via l'ISIN, fallback sur le nom."""
@@ -3901,6 +3902,100 @@ def api_import_csv_positions():
                 continue
         return "", name
 
+    def _infer_type(label):
+        return "etf" if any(k in label.upper() for k in ("ETF", "UCITS", "INDEX", "TRACKER")) else "action"
+
+    # ── Format Fortuneo : fichier .xls ────────────────────────────────────────
+    if filename.endswith(".xls") or filename.endswith(".xlsx"):
+        try:
+            import xlrd
+        except ImportError:
+            return jsonify({"ok": False, "erreur": "Module xlrd manquant pour lire les fichiers .xls. Contactez le support."}), 500
+
+        try:
+            wb = xlrd.open_workbook(file_contents=file_bytes)
+        except Exception as e:
+            return jsonify({"ok": False, "erreur": f"Impossible d'ouvrir le fichier Excel : {e}"}), 400
+
+        ws = wb.sheets()[0]
+
+        # Trouver la ligne d'en-tête (contient "ISIN" ou "Qté" ou "Libellé")
+        header_idx = None
+        header_row = []
+        for i in range(min(15, ws.nrows)):
+            row = [str(ws.cell_value(i, j)).strip() for j in range(ws.ncols)]
+            row_lower = [c.lower() for c in row]
+            if any(c in ("isin", "qté", "qt", "libellé", "libelle") for c in row_lower):
+                header_idx = i
+                header_row = row
+                break
+
+        if header_idx is None:
+            return jsonify({"ok": False, "erreur": "Format Fortuneo non reconnu : en-tête introuvable."}), 400
+
+        # Mapper les colonnes
+        col = {}
+        for j, h in enumerate(header_row):
+            hl = h.lower().strip()
+            if hl in ("libellé", "libelle", "nom", "valeur"):
+                col["libelle"] = j
+            elif hl in ("qté", "qt", "quantite", "quantité", "qty", "nombre"):
+                col["qty"] = j
+            elif hl in ("pru", "prix de revient unitaire", "cours achat", "pa"):
+                col["pru"] = j
+            elif hl == "isin":
+                col["isin"] = j
+
+        if "libelle" not in col or "qty" not in col:
+            return jsonify({"ok": False, "erreur": "Colonnes Libellé/Qté introuvables dans le fichier Fortuneo."}), 400
+
+        rows = []
+        for i in range(header_idx + 1, ws.nrows):
+            raw = [ws.cell_value(i, j) for j in range(ws.ncols)]
+
+            libelle = str(raw[col["libelle"]]).strip() if col.get("libelle") is not None else ""
+            if not libelle or libelle.lower() in ("total", "totaux", ""):
+                continue
+
+            # Extraire le ticker entre parenthèses à la fin : "AIRBUS (AIR)" → "AIR"
+            m = _re.search(r'\(([A-Z0-9\-]+)\)\s*$', libelle)
+            ticker_raw = m.group(1) if m else ""
+            name = _re.sub(r'\s*\([A-Z0-9\-]+\)\s*$', '', libelle).strip() or libelle
+
+            isin = str(raw[col["isin"]]).strip() if col.get("isin") is not None else ""
+            qty = _parse_num(raw[col["qty"]]) if col.get("qty") is not None else 0.0
+            pru = _parse_num(raw[col["pru"]]) if col.get("pru") is not None else 0.0
+
+            if qty <= 0:
+                continue
+
+            # Résolution Yahoo Finance via ISIN (plus fiable que le ticker Euronext brut)
+            ticker_yf, resolved_name = _resolve_ticker(isin, name)
+            ticker = ticker_yf or ticker_raw  # fallback sur le ticker du fichier
+
+            rows.append({
+                "nom": resolved_name or name,
+                "nom_original": libelle,
+                "isin": isin,
+                "ticker": ticker,
+                "quantite": qty,
+                "pru": pru,
+                "date_debut": "",
+                "type": _infer_type(libelle),
+                "categorie": "coeur",
+                "ticker_resolu": bool(ticker_yf),
+            })
+
+        return jsonify({"ok": True, "positions": rows})
+
+    # ── Format Boursorama : fichier CSV ───────────────────────────────────────
+    try:
+        content = file_bytes.decode("utf-8-sig")
+    except Exception:
+        return jsonify({"ok": False, "erreur": "Impossible de lire le fichier (encodage non supporté)."}), 400
+
+    reader = csv.DictReader(_io.StringIO(content), delimiter=";")
+
     rows = []
     for row in reader:
         name = str(row.get("name") or row.get("nom") or "").strip().strip('"')
@@ -3913,7 +4008,6 @@ def api_import_csv_positions():
             continue
 
         ticker, resolved_name = _resolve_ticker(isin, name)
-        inferred_type = "etf" if any(k in name.upper() for k in ("ETF", "UCITS", "INDEX", "TRACKER")) else "action"
 
         rows.append({
             "nom": resolved_name or name,
@@ -3923,7 +4017,7 @@ def api_import_csv_positions():
             "quantite": qty,
             "pru": pru,
             "date_debut": date[:10] if len(date) >= 10 else "",
-            "type": inferred_type,
+            "type": _infer_type(name),
             "categorie": "coeur",
             "ticker_resolu": bool(ticker),
         })

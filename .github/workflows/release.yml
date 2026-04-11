@@ -54,6 +54,7 @@ jobs:
             --hidden-import=cryptography \
             --hidden-import=zoneinfo \
             --hidden-import=tzdata \
+            --hidden-import=xlrd \
             --collect-all=tzdata \
             --add-data ".env.bundle;." \
             --name tomino-backend app.py
