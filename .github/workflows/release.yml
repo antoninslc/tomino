@@ -41,8 +41,13 @@ jobs:
 
       - name: Build Python backend sidecar
         shell: bash
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: |
           mkdir -p front/src-tauri/binaries
+          echo "XAI_API_KEY=${XAI_API_KEY}" > .env.bundle
+          echo "FMP_API_KEY=${FMP_API_KEY}" >> .env.bundle
           pyinstaller --onefile --noconsole \
             --hidden-import=stripe \
             --hidden-import=resend \
@@ -50,6 +55,7 @@ jobs:
             --hidden-import=zoneinfo \
             --hidden-import=tzdata \
             --collect-all=tzdata \
+            --add-data ".env.bundle;." \
             --name tomino-backend app.py
           mv dist/tomino-backend.exe "front/src-tauri/binaries/tomino-backend-x86_64-pc-windows-msvc.exe"
 

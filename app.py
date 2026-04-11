@@ -1,5 +1,10 @@
 from dotenv import load_dotenv
-load_dotenv()
+import sys as _sys, os as _os
+if getattr(_sys, 'frozen', False):
+    _bundle_dir = getattr(_sys, '_MEIPASS', _os.path.dirname(_os.path.abspath(__file__)))
+    load_dotenv(_os.path.join(_bundle_dir, '.env.bundle'))
+else:
+    load_dotenv()
 
 from flask import Flask, request, jsonify, Response, stream_with_context, g
 from flask_cors import CORS
