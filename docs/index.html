@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tomino - Suivi patrimonial local-first</title>
+    <meta
+      name="description"
+      content="Tomino est une application desktop Windows de suivi patrimonial local-first: actions, livrets, assurance vie, immobilier. Vos données restent sur votre ordinateur."
+    />
+    <style>
+      :root {
+        --bg: #0e0e10;
+        --bg-elev: #14161a;
+        --line: rgba(255, 255, 255, 0.1);
+        --text: #f5f7fb;
+        --text-2: #adb7c7;
+        --green: #18c37e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        background:
+          radial-gradient(circle at 10% 10%, rgba(24, 195, 126, 0.14), transparent 35%),
+          radial-gradient(circle at 90% 80%, rgba(24, 195, 126, 0.08), transparent 30%),
+          var(--bg);
+        color: var(--text);
+        line-height: 1.55;
+      }
+
+      .container {
+        width: min(960px, 92vw);
+        margin: 0 auto;
+      }
+
+      .hero {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 56px 0;
+      }
+
+      .card {
+        width: 100%;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.015));
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 34px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+      }
+
+      .kicker {
+        display: inline-block;
+        font-size: 0.74rem;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--green);
+        margin-bottom: 10px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 6vw, 3.1rem);
+        letter-spacing: -0.02em;
+        line-height: 1.12;
+      }
+
+      .tagline {
+        margin: 14px 0 0;
+        color: var(--text-2);
+        font-size: clamp(1rem, 2.6vw, 1.18rem);
+        max-width: 700px;
+      }
+
+      .features {
+        margin: 30px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .feature {
+        background: var(--bg-elev);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 14px;
+        color: var(--text-2);
+      }
+
+      .feature strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .actions {
+        margin-top: 28px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(24, 195, 126, 0.45);
+        background: linear-gradient(180deg, #27d790, #18c37e);
+        color: #062216;
+        font-weight: 700;
+        text-decoration: none;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.02);
+        box-shadow: 0 8px 24px rgba(24, 195, 126, 0.3);
+      }
+
+      .btn-secondary {
+        color: var(--text-2);
+        text-decoration: none;
+        border-bottom: 1px solid rgba(173, 183, 199, 0.35);
+        transition: color 0.15s ease, border-color 0.15s ease;
+      }
+
+      .btn-secondary:hover {
+        color: var(--text);
+        border-color: rgba(245, 247, 251, 0.6);
+      }
+
+      .meta {
+        margin-top: 16px;
+        color: var(--text-2);
+        font-size: 0.94rem;
+      }
+
+      .meta strong {
+        color: var(--text);
+      }
+
+      @media (max-width: 760px) {
+        .card {
+          border-radius: 18px;
+          padding: 22px;
+        }
+
+        .features {
+          grid-template-columns: 1fr;
+        }
+
+        .actions {
+          align-items: stretch;
+        }
+
+        .btn-primary {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="hero">
+      <section class="container">
+        <article class="card">
+          <span class="kicker">Application desktop Windows</span>
+          <h1>Tomino</h1>
+          <p class="tagline">Suivez votre patrimoine. Vos données restent chez vous.</p>
+
+          <ul class="features" aria-label="Fonctionnalités principales">
+            <li class="feature">
+              <strong>Suivi multi-actifs</strong><br />
+              Actions, livrets et assurance vie.
+            </li>
+            <li class="feature">
+              <strong>Cours automatiques</strong><br />
+              Mise à jour régulière des prix sans saisie manuelle.
+            </li>
+            <li class="feature">
+              <strong>Tomino Intelligence</strong><br />
+              Analyse IA pour un regard extérieur sur vos positions.
+            </li>
+            <li class="feature">
+              <strong>Graphiques historiques</strong><br />
+              Visualisez l'évolution de votre patrimoine dans le temps.
+            </li>
+          </ul>
+
+          <div class="actions">
+            <a
+              class="btn-primary"
+              href="https://github.com/antoninslc/tomino/releases/latest/download/Tomino_0.2.1_x64-setup.exe"
+            >
+              Télécharger pour Windows
+            </a>
+            <a class="btn-secondary" href="https://github.com/antoninslc/tomino/releases">Voir les releases GitHub</a>
+          </div>
+
+          <p class="meta"><strong>Windows 10/11</strong> · Gratuit · Aucun compte requis</p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
