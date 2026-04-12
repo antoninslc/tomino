@@ -1,0 +1,48 @@
+# Dépendances
+.venv/
+node_modules/
+front/node_modules/
+
+# Build outputs
+front/dist/
+front/src-tauri/target/
+dist/
+build/
+
+# Base de données & backups
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.tomino-backup
+Backups/
+
+# Environnement & secrets
+.env
+.env.*
+.env.bundle
+*.key
+*.pub
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Logs & temporaires
+*.log
+*.tmp
+*.spec
+
+# Tauri / Rust
+front/src-tauri/Cargo.lock
+front/src-tauri/gen/
+
+# IDE
+.vscode/
+.idea/
+
+# GitHub Actions (rarement utile en contexte)
+.github/workflows/
