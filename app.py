@@ -4595,12 +4595,10 @@ def api_repartition():
             continue
 
         info = prices.get_info_titre(ticker)
-        if not info:
-            continue
 
-        secteur = str(info.get("sector", "")).strip()
-        country = str(info.get("country", "")).strip()
-        sector_weights = info.get("sector_weights") or {}
+        secteur = str((info or {}).get("sector", "")).strip()
+        country = str((info or {}).get("country", "")).strip()
+        sector_weights = (info or {}).get("sector_weights") or {}
 
         if secteur:
             secteurs[secteur] = secteurs.get(secteur, 0.0) + valeur
@@ -4608,9 +4606,13 @@ def api_repartition():
             # ETF : distribuer la valeur proportionnellement sur les secteurs
             for s, w in sector_weights.items():
                 secteurs[s] = secteurs.get(s, 0.0) + valeur * w
+        else:
+            secteurs["Non classifié"] = secteurs.get("Non classifié", 0.0) + valeur
 
         if country:
             pays[country] = pays.get(country, 0.0) + valeur
+        else:
+            pays["Non classifié"] = pays.get("Non classifié", 0.0) + valeur
 
     def to_pct(buckets: dict[str, float]) -> dict[str, float]:
         if not buckets:

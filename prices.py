@@ -357,6 +357,14 @@ def get_info_titre(ticker: str) -> dict:
 
     # 1. FMP pour sector + country (actions)
     fmp = _fmp_profile(ticker)
+    # Fallback FMP : pour les cotations secondaires (Xetra .HM/.F/.DE, etc.)
+    # essayer le suffixe Euronext Paris .PA si FMP n'a rien retourné
+    if not fmp.get("sector") and not fmp.get("country"):
+        _NON_PRIMARY = {".HM", ".F", ".DE", ".BE", ".VI", ".MI", ".LS", ".BR", ".CO", ".ST", ".HE", ".OL"}
+        _suffix = ("." + ticker.split(".", 1)[1]) if "." in ticker else ""
+        if _suffix.upper() in _NON_PRIMARY:
+            _base = ticker.split(".", 1)[0]
+            fmp = _fmp_profile(_base + ".PA") or _fmp_profile(_base)
     if fmp.get("sector"):
         info["sector"] = fmp["sector"]
     if fmp.get("country"):
