@@ -192,8 +192,8 @@ export default function Repartition() {
       <div className="card fade-up-2" style={{ marginBottom: 16 }}>
         <div className="card-label">Note</div>
         <div style={{ color: 'var(--text-2)', fontSize: '.9rem', lineHeight: 1.6 }}>
-          Les ETFs sont ventil&eacute;s par secteur selon leurs pondérations internes (Yahoo Finance).
-          La répartition géographique n'est disponible que pour les actions individuelles.
+          Les ETFs sont ventilés par secteur et par pays selon leurs principales lignes (Yahoo Finance).
+          Le premier chargement peut être lent — les données sont ensuite mises en cache 24h.
         </div>
       </div>
 
