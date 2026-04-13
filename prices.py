@@ -406,6 +406,33 @@ def get_info_titre(ticker: str) -> dict:
         except Exception:
             pass
 
+    # 3. yfinance comme dernier fallback (plus robuste que l'appel HTTP brut)
+    if not info.get("sector") or not info.get("country"):
+        try:
+            import yfinance as yf
+            yf_info = yf.Ticker(ticker).info or {}
+            if not info.get("sector"):
+                sector = str(yf_info.get("sector") or "").strip()
+                if sector:
+                    info["sector"] = sector
+            if not info.get("country"):
+                country = str(yf_info.get("country") or "").strip()
+                if country:
+                    info["country"] = country
+            # ETFs : sector_weights via yfinance si pas encore récupéré
+            if not info.get("sector") and not info.get("sector_weights"):
+                raw_weights = yf_info.get("sectorWeightings") or []
+                weights = {}
+                for item in (raw_weights if isinstance(raw_weights, list) else []):
+                    for k, v in item.items():
+                        label = _sector_key_to_label(k)
+                        if label and isinstance(v, (int, float)) and v > 0:
+                            weights[label] = round(float(v), 4)
+                if weights:
+                    info["sector_weights"] = weights
+        except Exception:
+            pass
+
     # Ne pas mettre en cache un résultat vide — on réessaiera au prochain appel
     if info:
         _set_cache_entries({cache_key: {"timestamp": now, "value": info}})
