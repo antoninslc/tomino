@@ -421,6 +421,7 @@ def get_info_titre(ticker: str) -> dict:
                     info["country"] = country
             # ETFs : sector_weights via yfinance si pas encore récupéré
             if not info.get("sector") and not info.get("sector_weights"):
+                # Essai 1 : info dict (format liste de dicts)
                 raw_weights = yf_info.get("sectorWeightings") or []
                 weights = {}
                 for item in (raw_weights if isinstance(raw_weights, list) else []):
@@ -428,6 +429,18 @@ def get_info_titre(ticker: str) -> dict:
                         label = _sector_key_to_label(k)
                         if label and isinstance(v, (int, float)) and v > 0:
                             weights[label] = round(float(v), 4)
+                # Essai 2 : funds_data.sector_weightings (yfinance 1.2+)
+                if not weights:
+                    try:
+                        fd = yf.Ticker(ticker).funds_data
+                        sw = getattr(fd, "sector_weightings", None) or {}
+                        if isinstance(sw, dict):
+                            for k, v in sw.items():
+                                label = _sector_key_to_label(k)
+                                if label and isinstance(v, (int, float)) and v > 0:
+                                    weights[label] = round(float(v), 4)
+                    except Exception:
+                        pass
                 if weights:
                     info["sector_weights"] = weights
         except Exception:

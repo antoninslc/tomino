@@ -2,6 +2,39 @@ import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useParams } from 'react-router-dom'
 import { api } from '../api'
 
+const SECTEUR_FR = {
+  'Technology': 'Technologie',
+  'Healthcare': 'Santé',
+  'Financials': 'Finance',
+  'Financial Services': 'Finance',
+  'Consumer Cyclical': 'Conso. cyclique',
+  'Consumer Defensive': 'Conso. défensive',
+  'Industrials': 'Industrie',
+  'Basic Materials': 'Matières premières',
+  'Real Estate': 'Immobilier',
+  'Utilities': 'Services publics',
+  'Energy': 'Énergie',
+  'Communication Services': 'Communication',
+  'Non classifié': 'Non classifié',
+}
+
+const PAYS_FR = {
+  'France': 'France',
+  'United States': 'États-Unis',
+  'Germany': 'Allemagne',
+  'United Kingdom': 'Royaume-Uni',
+  'Switzerland': 'Suisse',
+  'Netherlands': 'Pays-Bas',
+  'Japan': 'Japon',
+  'Canada': 'Canada',
+  'Australia': 'Australie',
+  'China': 'Chine',
+  'Non classifié': 'Non classifié',
+}
+
+function translateSecteur(s) { return SECTEUR_FR[s] || s }
+function translatePays(p) { return PAYS_FR[p] || p }
+
 function asEnv(raw) {
   const env = String(raw || 'PEA').toUpperCase()
   return ['PEA', 'CTO', 'OR'].includes(env) ? env : 'PEA'
@@ -117,9 +150,10 @@ export default function Repartition() {
         setLoading(true)
         setError('')
         const rep = await api.get(`/repartition?env=${encodeURIComponent(env)}`)
+        const translateKeys = (obj, fn) => Object.fromEntries(Object.entries(obj || {}).map(([k, v]) => [fn(k), v]))
         setData({
-          secteurs: rep?.secteurs || {},
-          pays: rep?.pays || {}
+          secteurs: translateKeys(rep?.secteurs, translateSecteur),
+          pays: translateKeys(rep?.pays, translatePays),
         })
       } catch (e) {
         setError(e?.message || 'Erreur de chargement répartition')
