@@ -4609,12 +4609,17 @@ def api_repartition():
         else:
             secteurs["Non classifié"] = secteurs.get("Non classifié", 0.0) + valeur
 
-        # Géographie : actions uniquement (ETFs ignorés, pas de "Non classifié")
-        is_etf = str(a.get("type", "")).lower() in ("etf", "mutualfund") or bool(sector_weights)
+        country_weights = (info or {}).get("country_weights") or {}
         if country:
             pays[country] = pays.get(country, 0.0) + valeur
-        elif not is_etf:
-            pays["Non classifié"] = pays.get("Non classifié", 0.0) + valeur
+        elif country_weights:
+            # ETF : distribuer la valeur proportionnellement sur les pays des lignes
+            for c, w in country_weights.items():
+                pays[c] = pays.get(c, 0.0) + valeur * w
+        else:
+            is_etf = str(a.get("type", "")).lower() in ("etf", "mutualfund") or bool(sector_weights)
+            if not is_etf:
+                pays["Non classifié"] = pays.get("Non classifié", 0.0) + valeur
 
     def to_pct(buckets: dict[str, float]) -> dict[str, float]:
         if not buckets:

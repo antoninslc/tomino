@@ -446,10 +446,63 @@ def get_info_titre(ticker: str) -> dict:
         except Exception:
             pass
 
+    # 4. Pour les ETFs : répartition géographique via top holdings
+    if not info.get("country") and (info.get("sector_weights") or not info.get("sector")):
+        country_weights = _get_etf_country_weights(ticker)
+        if country_weights:
+            info["country_weights"] = country_weights
+
     # Ne pas mettre en cache un résultat vide — on réessaiera au prochain appel
     if info:
         _set_cache_entries({cache_key: {"timestamp": now, "value": info}})
     return info
+
+
+def _get_etf_country_weights(ticker: str) -> dict:
+    """
+    Estime la répartition géographique d'un ETF à partir de ses principales lignes.
+    Chaque ligne est mappée vers son pays via get_info_titre, puis pondérée.
+    Résultat mis en cache 24h (même TTL que INFO_TTL).
+    """
+    cache_key = f"etf_geo_{ticker}"
+    now = time.time()
+    entry = _cache.get(cache_key)
+    if isinstance(entry, dict) and now - entry.get("timestamp", 0) < INFO_TTL:
+        return entry.get("value") or {}
+
+    try:
+        import yfinance as yf
+        fd = yf.Ticker(ticker).funds_data
+        holdings_df = getattr(fd, "top_holdings", None)
+        if holdings_df is None or len(holdings_df) == 0:
+            return {}
+
+        country_weights: dict[str, float] = {}
+        total_weight = 0.0
+
+        for _, row in holdings_df.iterrows():
+            symbol = str(row.get("symbol", "") or "").strip()
+            weight = float(row.get("holdingPercent", 0) or 0)
+            if not symbol or weight <= 0:
+                continue
+
+            holding_info = get_info_titre(symbol)
+            country = str((holding_info or {}).get("country", "") or "").strip()
+            if country:
+                country_weights[country] = country_weights.get(country, 0.0) + weight
+                total_weight += weight
+
+        if not total_weight:
+            return {}
+
+        result = {
+            k: round(v / total_weight, 4)
+            for k, v in sorted(country_weights.items(), key=lambda x: x[1], reverse=True)
+        }
+        _set_cache_entries({cache_key: {"timestamp": now, "value": result}})
+        return result
+    except Exception:
+        return {}
 
 
 def enrichir_actifs(actifs: list) -> list:
