@@ -884,10 +884,16 @@ def import_dividendes_auto() -> int:
                 if db.get_dividende_by_ticker_date(ticker, date_div):
                     continue
 
+                montant_total = round(amount * quantite, 2)
                 db.add_dividende({
                     "ticker": ticker,
                     "nom": str(actif.get("nom") or ticker),
-                    "montant": round(amount * quantite, 2),
+                    "montant": montant_total,
+                    "montant_brut": montant_total,
+                    "retenue_source": 0.0,
+                    "montant_net": montant_total,
+                    "pays_source": "",
+                    "devise_source": "EUR",
                     "date_versement": date_div,
                     "enveloppe": str(actif.get("enveloppe") or "").strip(),
                     "notes": "Import automatique",
@@ -957,33 +963,50 @@ def get_calendrier_dividendes(ticker_qty_map: dict) -> list:
     for ticker in missing:
         try:
             url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
-            r = _get_session().get(url, params={"modules": "defaultKeyStatistics,summaryDetail"}, timeout=8)
+            r = _get_session().get(
+                url,
+                params={"modules": "calendarEvents,defaultKeyStatistics,summaryDetail"},
+                timeout=8,
+            )
             if not r.ok:
                 continue
             result_list = (r.json().get("quoteSummary") or {}).get("result") or []
             if not result_list:
                 continue
-            stats = result_list[0].get("defaultKeyStatistics") or {}
-            summary = result_list[0].get("summaryDetail") or {}
+            data0 = result_list[0]
+            stats = data0.get("defaultKeyStatistics") or {}
+            summary = data0.get("summaryDetail") or {}
+            cal_div = (data0.get("calendarEvents") or {}).get("dividends") or {}
 
-            ex_raw = (stats.get("exDividendDate") or {}).get("raw") or (summary.get("exDividendDate") or {}).get("raw")
+            # Prochaine date ex-div : calendarEvents > defaultKeyStatistics > summaryDetail
+            ex_raw = (
+                (cal_div.get("exDividendDate") or {}).get("raw")
+                or (stats.get("exDividendDate") or {}).get("raw")
+                or (summary.get("exDividendDate") or {}).get("raw")
+            )
+            pay_raw = (cal_div.get("date") or {}).get("raw")
+
             div_rate = _safe_float((summary.get("dividendRate") or {}).get("raw"))
-            div_freq = int((summary.get("dividendFrequency") or {}).get("raw") or 4)
+            # dividendFrequency: 1=annuel, 2=semestriel, 4=trimestriel — défaut 1 pour actions EU
+            div_freq_raw = (summary.get("dividendFrequency") or {}).get("raw")
+            div_freq = int(div_freq_raw) if div_freq_raw else 1
 
             if not ex_raw:
                 continue
             ex_date_obj = dt_mod.date.fromtimestamp(int(ex_raw))
-            if ex_date_obj < today or ex_date_obj > end:
+            # Tolérance 60 jours dans le passé (paiement pas encore reçu)
+            if ex_date_obj < today - dt_mod.timedelta(days=60) or ex_date_obj > end:
                 continue
 
             div_action = round(div_rate / div_freq, 4) if div_rate and div_freq else None
             qty = ticker_qty_map.get(ticker, 0)
             montant_estime = round(div_action * qty, 2) if div_action and qty else None
+            pay_date_str = dt_mod.date.fromtimestamp(int(pay_raw)).isoformat() if pay_raw else ""
 
             results.append({
                 "ticker": ticker.upper(),
                 "ex_date": ex_date_obj.isoformat(),
-                "payment_date": "",
+                "payment_date": pay_date_str,
                 "record_date": "",
                 "dividende_action": div_action,
                 "quantite": qty,

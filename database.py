@@ -2800,6 +2800,23 @@ def inject_demo_data():
     _record_sync_upsert(conn, 'livrets', c.lastrowid)
     c.execute('''INSERT INTO livrets (nom, capital, taux) VALUES ('LDDS', 12000.0, 3.0)''')
     _record_sync_upsert(conn, 'livrets', c.lastrowid)
+
+    # Dividendes historiques démo (LVMH + Air Liquide)
+    demo_dividendes = [
+        # LVMH MC.PA — 10 actions
+        ('MC.PA', 'LVMH', 35.00, 35.00, 0.0, 35.00, 'France', 'EUR', '2024-05-31', 'PEA', 'Import automatique'),
+        ('MC.PA', 'LVMH', 15.00, 15.00, 0.0, 15.00, 'France', 'EUR', '2023-12-08', 'PEA', 'Import automatique'),
+        ('MC.PA', 'LVMH', 33.00, 33.00, 0.0, 33.00, 'France', 'EUR', '2023-05-31', 'PEA', 'Import automatique'),
+        ('MC.PA', 'LVMH', 13.50, 13.50, 0.0, 13.50, 'France', 'EUR', '2022-12-09', 'PEA', 'Import automatique'),
+        # Air Liquide AI.PA — 25 actions
+        ('AI.PA', 'Air Liquide', 87.50, 87.50, 0.0, 87.50, 'France', 'EUR', '2024-05-17', 'PEA', 'Import automatique'),
+        ('AI.PA', 'Air Liquide', 80.00, 80.00, 0.0, 80.00, 'France', 'EUR', '2023-05-12', 'PEA', 'Import automatique'),
+    ]
+    for d in demo_dividendes:
+        c.execute('''INSERT INTO dividendes
+            (ticker, nom, montant, montant_brut, retenue_source, montant_net, pays_source, devise_source, date_versement, enveloppe, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', d)
+        _record_sync_upsert(conn, 'dividendes', c.lastrowid)
     
     date_base = datetime.datetime.now() - datetime.timedelta(days=30)
     for i in range(31):
