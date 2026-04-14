@@ -6,8 +6,6 @@ import datetime
 import uuid
 import threading
 
-import prices
-
 def get_data_dir():
     if getattr(sys, 'frozen', False):
         app_data = os.getenv('APPDATA', os.path.expanduser('~'))
@@ -2818,6 +2816,7 @@ def inject_demo_data():
         c.execute('INSERT INTO profil (id, is_demo) VALUES (1, 1)')
     _record_sync_upsert(conn, 'profil', 1)
     
+    import prices  # import local pour éviter le circular import au top-level
     demo_positions = [
         {
             'enveloppe': 'PEA',
