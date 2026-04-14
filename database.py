@@ -2845,13 +2845,24 @@ def inject_demo_data():
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', d)
         _record_sync_upsert(conn, 'dividendes', c.lastrowid)
     
+    # Capital investi démo constant : MC.PA 10×600 + AI.PA 25×140 + CW8.PA 50×400 + livrets
+    _DEMO_PEA_INVESTIE = 29_500.0   # 6000 + 3500 + 20000
+    _DEMO_LIVRETS = 34_950.0        # Livret A + LDDS
+    _DEMO_INVESTIE_TOTAL = _DEMO_PEA_INVESTIE + _DEMO_LIVRETS  # 64 450
+
     date_base = datetime.datetime.now() - datetime.timedelta(days=30)
     for i in range(31):
         d = (date_base + datetime.timedelta(days=i)).strftime('%Y-%m-%d')
         val_pea = 25000 + (100 * i) + (i % 3) * 50
-        val_livrets = 34950
-        c.execute('INSERT INTO historique (date, valeur_totale, valeur_pea, valeur_cto, valeur_or, valeur_livrets) VALUES (?, ?, ?, ?, ?, ?)',
-                  (d, val_pea + val_livrets, val_pea, 0, 0, val_livrets))
+        val_livrets = _DEMO_LIVRETS
+        c.execute(
+            '''INSERT INTO historique
+               (date, valeur_totale, valeur_pea, valeur_cto, valeur_or, valeur_livrets,
+                valeur_investie, valeur_pea_investie, valeur_cto_investie, valeur_or_investie)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (d, val_pea + val_livrets, val_pea, 0, 0, val_livrets,
+             _DEMO_INVESTIE_TOTAL, _DEMO_PEA_INVESTIE, 0.0, 0.0),
+        )
                   
     conn.commit()
     conn.close()
