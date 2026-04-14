@@ -4573,14 +4573,6 @@ def api_benchmark():
     return jsonify(data)
 
 
-@app.route("/api/debug/etf-geo/<ticker>")
-def api_debug_etf_geo(ticker):
-    """Debug : retourne les données brutes de répartition géographique pour un ticker ETF."""
-    info = prices.get_info_titre(ticker.upper())
-    country_weights = prices._get_etf_country_weights(ticker.upper())
-    return jsonify({"info": info, "country_weights": country_weights})
-
-
 @app.route("/api/repartition")
 def api_repartition():
     env = _clean_env(request.args.get("env", "PEA"))
