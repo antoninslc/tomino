@@ -388,7 +388,7 @@ export default function Dividendes() {
           <div style={{ color: 'var(--text-3)', fontSize: '.84rem' }}>Chargement…</div>
         ) : calendrier.length === 0 ? (
           <div className="empty" style={{ padding: '20px 0' }}>
-            <div className="empty-icon">📅</div>
+            <div className="empty-icon">◻</div>
             <p>Aucun dividende prévu détecté sur les 6 prochains mois.</p>
           </div>
         ) : (
