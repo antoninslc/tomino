@@ -388,7 +388,19 @@ export default function Dividendes() {
           <div style={{ color: 'var(--text-3)', fontSize: '.84rem' }}>Chargement…</div>
         ) : calendrier.length === 0 ? (
           <div className="empty" style={{ padding: '20px 0' }}>
-            <div className="empty-icon">◻</div>
+            <div className="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="7" y1="13" x2="9" y2="13" />
+                <line x1="11" y1="13" x2="13" y2="13" />
+                <line x1="15" y1="13" x2="17" y2="13" />
+                <line x1="7" y1="17" x2="9" y2="17" />
+                <line x1="11" y1="17" x2="13" y2="17" />
+              </svg>
+            </div>
             <p>Aucun dividende prévu détecté sur les 6 prochains mois.</p>
           </div>
         ) : (
