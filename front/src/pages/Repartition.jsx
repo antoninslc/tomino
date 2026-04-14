@@ -69,7 +69,7 @@ function compactEntries(data = {}, maxSlices = 6) {
 }
 
 function DonutCard({ title, data }) {
-  const entries = useMemo(() => compactEntries(data, 6), [data])
+  const entries = useMemo(() => compactEntries(data, 8), [data])
 
   let cursor = 0
   const gradient = entries
