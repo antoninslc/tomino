@@ -205,6 +205,33 @@ def set_schema_version(version, conn=None):
             current_conn.close()
 
 
+def get_meta(key: str) -> str | None:
+    conn = get_db()
+    try:
+        _ensure_meta_table(conn)
+        row = conn.execute("SELECT value FROM tomino_meta WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def set_meta(key: str, value: str) -> None:
+    conn = get_db()
+    try:
+        _ensure_meta_table(conn)
+        conn.execute(
+            """
+            INSERT INTO tomino_meta (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')
+            """,
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _sync_iso_now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 

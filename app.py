@@ -61,7 +61,7 @@ _RESUME_CACHE = {
     "data": None,
     "timestamp": 0.0,
 }
-_last_dividend_check = None
+_DIVIDEND_SYNC_KEY = "last_dividend_sync"
 
 IA_WEEKLY_BUDGET_EUR_PAR_TIER: dict[str, float] = {
     "free":        0.05,
@@ -1508,15 +1508,21 @@ def _build_status_payload():
     }
 
 
-def _sync_dividendes_quotidien(now: datetime.datetime):
-    global _last_dividend_check
+def _sync_dividendes_quotidien(now: datetime.datetime, force: bool = False):
+    """Lance le sync dividendes si pas encore fait aujourd'hui.
+
+    force=True : ignore la contrainte d'heure (utilisé au démarrage pour rattraper un sync manqué).
+    """
     today = now.date().isoformat()
-    if now.hour < 18 or _last_dividend_check == today:
+    last = db.get_meta(_DIVIDEND_SYNC_KEY)
+    if last == today:
+        return
+    if not force and now.hour < 18:
         return
 
     try:
         nouveaux = prices.import_dividendes_auto()
-        _last_dividend_check = today
+        db.set_meta(_DIVIDEND_SYNC_KEY, today)
         if nouveaux > 0:
             app.logger.info("Import auto dividendes: %s nouveau(x)", nouveaux)
     except Exception as exc:
@@ -1524,6 +1530,13 @@ def _sync_dividendes_quotidien(now: datetime.datetime):
 
 
 def _cours_scheduler():
+    # Rattrapage au démarrage : si le sync n'a pas eu lieu aujourd'hui (app fermée à 18h),
+    # on le lance immédiatement sans attendre 18h.
+    try:
+        _sync_dividendes_quotidien(_paris_now(), force=True)
+    except Exception as exc:
+        app.logger.warning("Sync dividendes démarrage: %s", exc)
+
     while True:
         now = _paris_now()
         _sync_dividendes_quotidien(now)
