@@ -1,6 +1,6 @@
 [package]
 name = "tomino"
-version = "0.2.5"
+version = "0.2.6"
 description = "Tomino — Suivi patrimonial"
 authors = ["Tomino"]
 license = ""
