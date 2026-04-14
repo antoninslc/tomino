@@ -6,6 +6,7 @@ export default function CustomSelect({
   options,
   placeholder = 'Sélectionner une option',
   disabled = false,
+  minWidth = 0,
 }) {
   const [open, setOpen] = useState(false)
   const [hovered, setHovered] = useState('')
@@ -51,6 +52,7 @@ export default function CustomSelect({
         disabled={disabled}
         style={{
           width: '100%',
+          minWidth,
           minHeight: 42,
           textAlign: 'left',
           display: 'flex',
@@ -75,6 +77,7 @@ export default function CustomSelect({
             top: 'calc(100% + 4px)',
             left: 0,
             right: 0,
+            minWidth,
             background: '#1a1d22',
             border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: 12,

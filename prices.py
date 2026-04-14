@@ -1773,6 +1773,37 @@ def _fetch_historique_ticker(ticker: str, start_ts: int, end_ts: int) -> dict[st
         return {}
 
 
+def get_close_price_on_or_before(ticker: str, date_str: str, lookback_days: int = 15) -> float | None:
+    """
+    Retourne le dernier cours de clôture disponible à la date demandée
+    (ou la séance précédente si week-end/jour férié).
+    """
+    try:
+        target = datetime.strptime(str(date_str), "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+    start = target - timedelta(days=max(1, int(lookback_days or 1)))
+    start_ts = int(datetime(start.year, start.month, start.day).timestamp())
+    end_ts = int(datetime(target.year, target.month, target.day, 23, 59, 59).timestamp())
+
+    hist = _fetch_historique_ticker(str(ticker or "").strip().upper(), start_ts, end_ts)
+    if not hist:
+        return None
+
+    current = target
+    while current >= start:
+        key = current.strftime("%Y-%m-%d")
+        if key in hist:
+            try:
+                return float(hist[key])
+            except Exception:
+                return None
+        current -= timedelta(days=1)
+
+    return None
+
+
 def reconstruire_historique_portfolio(mouvements_par_ticker: dict) -> list[dict]:
     """
     Reconstruit l'historique journalier du patrimoine actions/or.

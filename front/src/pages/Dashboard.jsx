@@ -91,6 +91,8 @@ const PERIODS = [
   { key: 'MAX', days: null },
 ]
 
+const HISTORY_FETCH_LIMIT = 5000
+
 function formatEur(v) {
   return Number(v).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })
 }
@@ -413,7 +415,7 @@ export default function Dashboard() {
         setError('')
         const [resumeData, histData, actifsData] = await Promise.all([
           api.get('/resume'),
-          api.get('/historique'),
+          api.get(`/historique?limit=${HISTORY_FETCH_LIMIT}`),
           api.get('/actifs/all')
         ])
         if (!mounted) return
@@ -445,7 +447,7 @@ export default function Dashboard() {
       const res = await api.post('/historique/reconstruire', {})
       if (res.ok) {
         setReconstructMsg(`${res.points} points reconstruits (${res.tickers ?? '?'} tickers).`)
-        const histData = await api.get('/historique')
+        const histData = await api.get(`/historique?limit=${HISTORY_FETCH_LIMIT}`)
         setHistorique(Array.isArray(histData) ? histData : [])
       } else {
         setReconstructMsg(res.erreur || 'Erreur lors de la reconstruction.')
@@ -630,6 +632,7 @@ export default function Dashboard() {
                   onChange={setSelectedHistoryMetric}
                   options={historyMetricOptions}
                   placeholder="Série"
+                  minWidth={210}
                 />
                 <div className="badge badge-dim">{historique.length} pts</div>
                 <button

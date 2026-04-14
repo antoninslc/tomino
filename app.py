@@ -4330,7 +4330,12 @@ def api_alertes_reactiver(alerte_id):
 
 @app.route("/api/historique")
 def api_historique():
-    return jsonify(db.get_historique(90))
+    limit_raw = request.args.get("limit", "5000").strip()
+    try:
+        limit = max(1, min(int(limit_raw), 20000))
+    except Exception:
+        limit = 5000
+    return jsonify(db.get_historique(limit))
 
 
 _RECONSTRUCTION_LOCK = threading.Lock()
@@ -4862,7 +4867,17 @@ def api_chat_stream():
 def api_demo_inject():
     try:
         db.inject_demo_data()
-        return jsonify({"ok": True})
+
+        points = 0
+        tickers = 0
+        mouvements = db.get_mouvements_pour_historique()
+        if mouvements:
+            tickers = len(mouvements)
+            snapshots = prices.reconstruire_historique_portfolio(mouvements)
+            if snapshots:
+                points = db.upsert_historique_retroactif(snapshots)
+
+        return jsonify({"ok": True, "points": points, "tickers": tickers})
     except Exception as e:
         return jsonify({"ok": False, "erreur": str(e)}), 500
 

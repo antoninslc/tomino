@@ -6,6 +6,8 @@ import datetime
 import uuid
 import threading
 
+import prices
+
 def get_data_dir():
     if getattr(sys, 'frozen', False):
         app_data = os.getenv('APPDATA', os.path.expanduser('~'))
@@ -2816,12 +2818,87 @@ def inject_demo_data():
         c.execute('INSERT INTO profil (id, is_demo) VALUES (1, 1)')
     _record_sync_upsert(conn, 'profil', 1)
     
-    c.execute('''INSERT INTO actifs (enveloppe, nom, ticker, quantite, pru, type, date_achat) VALUES ('PEA', 'LVMH', 'MC.PA', 10, 600.0, 'action', '2023-01-10')''')
-    _record_sync_upsert(conn, 'actifs', c.lastrowid)
-    c.execute('''INSERT INTO actifs (enveloppe, nom, ticker, quantite, pru, type, date_achat) VALUES ('PEA', 'Air Liquide', 'AI.PA', 25, 140.0, 'action', '2023-05-20')''')
-    _record_sync_upsert(conn, 'actifs', c.lastrowid)
-    c.execute('''INSERT INTO actifs (enveloppe, nom, ticker, quantite, pru, type, date_achat) VALUES ('PEA', 'Amundi MSCI World', 'CW8.PA', 50, 400.0, 'etf', '2022-11-05')''')
-    _record_sync_upsert(conn, 'actifs', c.lastrowid)
+    demo_positions = [
+        {
+            'enveloppe': 'PEA',
+            'nom': 'Amundi MSCI World',
+            'ticker': 'CW8.PA',
+            'quantite': 18.0,
+            'type': 'etf',
+            'date_achat': '2021-04-12',
+            'fallback_pru': 412.0,
+        },
+        {
+            'enveloppe': 'PEA',
+            'nom': 'LVMH',
+            'ticker': 'MC.PA',
+            'quantite': 7.0,
+            'type': 'action',
+            'date_achat': '2022-10-17',
+            'fallback_pru': 620.0,
+        },
+        {
+            'enveloppe': 'PEA',
+            'nom': 'Air Liquide',
+            'ticker': 'AI.PA',
+            'quantite': 16.0,
+            'type': 'action',
+            'date_achat': '2023-06-05',
+            'fallback_pru': 155.0,
+        },
+        {
+            'enveloppe': 'OR',
+            'nom': 'Amundi Physical Gold ETC',
+            'ticker': 'GOLD.PA',
+            'quantite': 30.0,
+            'type': 'or',
+            'date_achat': '2020-09-21',
+            'fallback_pru': 74.0,
+        },
+    ]
+
+    for p in demo_positions:
+        hist_price = prices.get_close_price_on_or_before(p['ticker'], p['date_achat'])
+        pru = round(float(hist_price or p['fallback_pru']), 4)
+
+        c.execute(
+            '''
+            INSERT INTO actifs (enveloppe, nom, ticker, quantite, pru, type, date_achat)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                p['enveloppe'],
+                p['nom'],
+                p['ticker'],
+                float(p['quantite']),
+                pru,
+                p['type'],
+                p['date_achat'],
+            ),
+        )
+        actif_id = int(c.lastrowid)
+        _record_sync_upsert(conn, 'actifs', actif_id)
+
+        montant = round(float(p['quantite']) * pru, 2)
+        c.execute(
+            '''
+            INSERT INTO mouvements (
+                actif_id, enveloppe, type_operation, date_operation, quantite,
+                prix_unitaire, frais, montant_brut, montant_net, pv_realisee
+            )
+            VALUES (?, ?, 'snapshot', ?, ?, ?, 0, ?, ?, NULL)
+            ''',
+            (
+                actif_id,
+                p['enveloppe'],
+                p['date_achat'],
+                float(p['quantite']),
+                pru,
+                montant,
+                montant,
+            ),
+        )
+        _record_sync_upsert(conn, 'mouvements', int(c.lastrowid))
     
     c.execute('''INSERT INTO livrets (nom, capital, taux) VALUES ('Livret A', 22950.0, 3.0)''')
     _record_sync_upsert(conn, 'livrets', c.lastrowid)
@@ -2830,14 +2907,10 @@ def inject_demo_data():
 
     # Dividendes historiques démo (LVMH + Air Liquide)
     demo_dividendes = [
-        # LVMH MC.PA — 10 actions
-        ('MC.PA', 'LVMH', 35.00, 35.00, 0.0, 35.00, 'France', 'EUR', '2024-05-31', 'PEA', 'Import automatique'),
-        ('MC.PA', 'LVMH', 15.00, 15.00, 0.0, 15.00, 'France', 'EUR', '2023-12-08', 'PEA', 'Import automatique'),
-        ('MC.PA', 'LVMH', 33.00, 33.00, 0.0, 33.00, 'France', 'EUR', '2023-05-31', 'PEA', 'Import automatique'),
-        ('MC.PA', 'LVMH', 13.50, 13.50, 0.0, 13.50, 'France', 'EUR', '2022-12-09', 'PEA', 'Import automatique'),
-        # Air Liquide AI.PA — 25 actions
-        ('AI.PA', 'Air Liquide', 87.50, 87.50, 0.0, 87.50, 'France', 'EUR', '2024-05-17', 'PEA', 'Import automatique'),
-        ('AI.PA', 'Air Liquide', 80.00, 80.00, 0.0, 80.00, 'France', 'EUR', '2023-05-12', 'PEA', 'Import automatique'),
+        ('MC.PA', 'LVMH', 24.50, 24.50, 0.0, 24.50, 'France', 'EUR', '2025-05-30', 'PEA', 'Import automatique'),
+        ('MC.PA', 'LVMH', 10.50, 10.50, 0.0, 10.50, 'France', 'EUR', '2024-12-06', 'PEA', 'Import automatique'),
+        ('AI.PA', 'Air Liquide', 56.00, 56.00, 0.0, 56.00, 'France', 'EUR', '2025-05-16', 'PEA', 'Import automatique'),
+        ('AI.PA', 'Air Liquide', 51.20, 51.20, 0.0, 51.20, 'France', 'EUR', '2024-05-17', 'PEA', 'Import automatique'),
     ]
     for d in demo_dividendes:
         c.execute('''INSERT INTO dividendes
@@ -2845,25 +2918,9 @@ def inject_demo_data():
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', d)
         _record_sync_upsert(conn, 'dividendes', c.lastrowid)
     
-    # Capital investi démo constant : MC.PA 10×600 + AI.PA 25×140 + CW8.PA 50×400 + livrets
-    _DEMO_PEA_INVESTIE = 29_500.0   # 6000 + 3500 + 20000
-    _DEMO_LIVRETS = 34_950.0        # Livret A + LDDS
-    _DEMO_INVESTIE_TOTAL = _DEMO_PEA_INVESTIE + _DEMO_LIVRETS  # 64 450
+    # L'historique portefeuille est reconstruit côté app.py après l'injection
+    # à partir des mouvements et des cours Yahoo jusqu'à aujourd'hui.
 
-    date_base = datetime.datetime.now() - datetime.timedelta(days=30)
-    for i in range(31):
-        d = (date_base + datetime.timedelta(days=i)).strftime('%Y-%m-%d')
-        val_pea = 25000 + (100 * i) + (i % 3) * 50
-        val_livrets = _DEMO_LIVRETS
-        c.execute(
-            '''INSERT INTO historique
-               (date, valeur_totale, valeur_pea, valeur_cto, valeur_or, valeur_livrets,
-                valeur_investie, valeur_pea_investie, valeur_cto_investie, valeur_or_investie)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-            (d, val_pea + val_livrets, val_pea, 0, 0, val_livrets,
-             _DEMO_INVESTIE_TOTAL, _DEMO_PEA_INVESTIE, 0.0, 0.0),
-        )
-                  
     conn.commit()
     conn.close()
 
