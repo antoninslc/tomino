@@ -292,7 +292,7 @@ export default function Dividendes() {
     setError('')
     setSyncMsg('')
     try {
-      const result = await api.get('/dividendes/sync')
+      const result = await api.post('/dividendes/sync', {})
       const nouveaux = Number(result?.nouveaux || 0)
       setSyncMsg(`${nouveaux} nouveau(x) dividende(s) importé(s).`)
       await load()

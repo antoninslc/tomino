@@ -4223,7 +4223,7 @@ def api_dividendes_update(dividende_id):
     return jsonify({"ok": True})
 
 
-@app.route("/api/dividendes/sync")
+@app.route("/api/dividendes/sync", methods=["POST"])
 def api_dividendes_sync():
     nouveaux = prices.import_dividendes_auto()
     return jsonify({"ok": True, "nouveaux": int(nouveaux)})
