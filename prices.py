@@ -507,27 +507,74 @@ def _get_etf_country_weights(ticker: str) -> dict:
         except Exception:
             pass
 
-    if not holdings:
-        return {}
+    if holdings:
+        country_weights: dict[str, float] = {}
+        total_weight = 0.0
+        for symbol, weight in holdings:
+            holding_info = get_info_titre(symbol)
+            country = str((holding_info or {}).get("country", "") or "").strip()
+            if country:
+                country_weights[country] = country_weights.get(country, 0.0) + weight
+                total_weight += weight
+        if total_weight > 0:
+            result = {
+                k: round(v / total_weight, 4)
+                for k, v in sorted(country_weights.items(), key=lambda x: x[1], reverse=True)
+            }
+            _set_cache_entries({cache_key: {"timestamp": now, "value": result}})
+            return result
 
-    country_weights: dict[str, float] = {}
-    total_weight = 0.0
-
-    for symbol, weight in holdings:
-        holding_info = get_info_titre(symbol)
-        country = str((holding_info or {}).get("country", "") or "").strip()
-        if country:
-            country_weights[country] = country_weights.get(country, 0.0) + weight
-            total_weight += weight
-
-    if not total_weight:
-        return {}
-
-    result = {
-        k: round(v / total_weight, 4)
-        for k, v in sorted(country_weights.items(), key=lambda x: x[1], reverse=True)
+    # 3. Fallback : distribution connue selon l'indice détecté dans le nom de l'ETF
+    _KNOWN_GEO: dict[str, dict[str, float]] = {
+        "msci world": {
+            "United States": 0.655, "Japan": 0.062, "United Kingdom": 0.040,
+            "France": 0.033, "Canada": 0.031, "Switzerland": 0.025,
+            "Germany": 0.022, "Australia": 0.020, "Netherlands": 0.015,
+            "Denmark": 0.009, "Sweden": 0.009, "Spain": 0.007,
+            "Hong Kong": 0.006, "Italy": 0.006, "Singapore": 0.004,
+        },
+        "s&p 500": {"United States": 1.0},
+        "sp500": {"United States": 1.0},
+        "nasdaq": {"United States": 1.0},
+        "msci usa": {"United States": 1.0},
+        "msci emerging": {
+            "China": 0.270, "India": 0.180, "Taiwan": 0.170, "South Korea": 0.120,
+            "Brazil": 0.050, "Saudi Arabia": 0.040, "South Africa": 0.035,
+            "Mexico": 0.025, "Indonesia": 0.020, "Thailand": 0.018,
+        },
+        "msci europe": {
+            "United Kingdom": 0.235, "France": 0.155, "Switzerland": 0.145,
+            "Germany": 0.140, "Netherlands": 0.070, "Sweden": 0.055,
+            "Denmark": 0.040, "Italy": 0.030, "Spain": 0.030, "Finland": 0.015,
+        },
+        "euro stoxx 50": {
+            "France": 0.360, "Germany": 0.280, "Netherlands": 0.110,
+            "Spain": 0.090, "Italy": 0.080, "Belgium": 0.030, "Finland": 0.020,
+        },
+        "euro stoxx": {
+            "France": 0.310, "Germany": 0.260, "Netherlands": 0.100,
+            "Spain": 0.090, "Italy": 0.075, "Sweden": 0.050, "Belgium": 0.025,
+        },
+        "cac 40": {"France": 1.0},
+        "dax": {"Germany": 1.0},
+        "msci acwi": {
+            "United States": 0.615, "Japan": 0.056, "United Kingdom": 0.036,
+            "China": 0.033, "France": 0.030, "Canada": 0.028, "Switzerland": 0.022,
+            "Germany": 0.020, "India": 0.018, "Australia": 0.018,
+        },
     }
-    _set_cache_entries({cache_key: {"timestamp": now, "value": result}})
+    try:
+        import yfinance as yf
+        yf_info = yf.Ticker(ticker).info or {}
+        long_name = str(yf_info.get("longName") or yf_info.get("shortName") or "").lower()
+        for key, geo in _KNOWN_GEO.items():
+            if key in long_name:
+                _set_cache_entries({cache_key: {"timestamp": now, "value": geo}})
+                return geo
+    except Exception:
+        pass
+
+    return {}
     return result
 
 
