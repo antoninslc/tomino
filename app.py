@@ -4573,6 +4573,14 @@ def api_benchmark():
     return jsonify(data)
 
 
+@app.route("/api/debug/etf-geo/<ticker>")
+def api_debug_etf_geo(ticker):
+    """Debug : retourne les données brutes de répartition géographique pour un ticker ETF."""
+    info = prices.get_info_titre(ticker.upper())
+    country_weights = prices._get_etf_country_weights(ticker.upper())
+    return jsonify({"info": info, "country_weights": country_weights})
+
+
 @app.route("/api/repartition")
 def api_repartition():
     env = _clean_env(request.args.get("env", "PEA"))
@@ -4610,16 +4618,18 @@ def api_repartition():
             secteurs["Non classifié"] = secteurs.get("Non classifié", 0.0) + valeur
 
         country_weights = (info or {}).get("country_weights") or {}
-        if country:
-            pays[country] = pays.get(country, 0.0) + valeur
-        elif country_weights:
-            # ETF : distribuer la valeur proportionnellement sur les pays des lignes
+        is_etf = str(a.get("type", "")).lower() in ("etf", "mutualfund") or bool(sector_weights)
+
+        if country_weights:
+            # ETF ou action avec répartition géographique détaillée
             for c, w in country_weights.items():
                 pays[c] = pays.get(c, 0.0) + valeur * w
-        else:
-            is_etf = str(a.get("type", "")).lower() in ("etf", "mutualfund") or bool(sector_weights)
-            if not is_etf:
-                pays["Non classifié"] = pays.get("Non classifié", 0.0) + valeur
+        elif country and not is_etf:
+            # Action individuelle : utiliser le pays de domiciliation
+            pays[country] = pays.get(country, 0.0) + valeur
+        elif not is_etf:
+            pays["Non classifié"] = pays.get("Non classifié", 0.0) + valeur
+        # ETF sans country_weights → ignoré (domiciliation != exposition géographique)
 
     def to_pct(buckets: dict[str, float]) -> dict[str, float]:
         if not buckets:
