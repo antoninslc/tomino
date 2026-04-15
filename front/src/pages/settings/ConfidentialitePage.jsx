@@ -127,14 +127,6 @@ export default function ConfidentialitePage({ ctx }) {
         />
       </Section>
 
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', paddingTop: 4, paddingBottom: 8 }}>
-        <button type="button" onClick={() => navigate('/politique-confidentialite')} style={{ background: 'none', border: 0, color: 'var(--text-3)', fontSize: '.78rem', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(255,255,255,0.15)', padding: 0 }}>
-          Politique de confidentialité
-        </button>
-        <button type="button" onClick={() => navigate('/mentions-legales')} style={{ background: 'none', border: 0, color: 'var(--text-3)', fontSize: '.78rem', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(255,255,255,0.15)', padding: 0 }}>
-          Mentions légales
-        </button>
-      </div>
     </>
   )
 }
