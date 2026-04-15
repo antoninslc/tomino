@@ -127,6 +127,14 @@ fn main() {
     tauri::Builder::default()
         .system_tray(tray)
         .manage(sidecar_state)
+        .setup(|app| {
+            if let Some(window) = app.get_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            Ok(())
+        })
         // ── Evenements systray ──────────────────────────────────────────────
         .on_system_tray_event(|app, event| match event {
             // Clic gauche sur l'icone : rouvrir la fenetre
