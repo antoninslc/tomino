@@ -53,7 +53,7 @@
           "headerImage": "installer/nsis-header.bmp",
           "sidebarImage": "installer/nsis-sidebar.bmp",
           "installerIcon": "icons/icon.ico",
-          "installMode": "currentUser",
+          "installMode": "perMachine",
           "languages": [
             "English",
             "French"
