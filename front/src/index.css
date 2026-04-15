@@ -510,6 +510,13 @@ a {
 	font-size: .84rem;
 	line-height: 1.75;
 	color: var(--text-2);
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.prose-ai {
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 .grok-memo h2 {
@@ -803,6 +810,8 @@ a {
 .chat-ai {
 	align-self: flex-start;
 	background: rgba(255, 255, 255, .03);
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 .chat-loading-shimmer {
