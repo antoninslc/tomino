@@ -130,7 +130,7 @@ fn main() {
         // ── Evenements systray ──────────────────────────────────────────────
         .on_system_tray_event(|app, event| match event {
             // Clic gauche sur l'icone : rouvrir la fenetre
-            SystemTrayEvent::LeftButtonUp { .. } => {
+            SystemTrayEvent::LeftClick { .. } => {
                 if let Some(window) = app.get_window("main") {
                     let _ = window.show();
                     let _ = window.unminimize();
@@ -179,7 +179,7 @@ fn main() {
                         eprintln!("[TOMINO] Fermeture — arret du sidecar Flask");
                         let _ = child.kill();
                     }
-                }
+                };
             }
             _ => {}
         })
