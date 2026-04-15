@@ -1337,7 +1337,7 @@ function SectorComparison({ d }) {
 
 // ── Memo Grok proactif ─────────────────────────────────────
 
-function MemoGrok({ memo, loading, error, onRetry }) {
+function MemoGrok({ memo, loading, error, onRetry, onGenerate }) {
   const [infoOpen, setInfoOpen] = useState(false)
 
   const htmlContent = memo
@@ -1384,6 +1384,30 @@ function MemoGrok({ memo, loading, error, onRetry }) {
       {loading && (
         <div style={{ color: 'var(--text-3)', fontSize: '.82rem', fontFamily: 'var(--mono)' }}>
           Generation du memo en cours…
+        </div>
+      )}
+      {!memo && !loading && !error && onGenerate && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ color: 'var(--text-3)', fontSize: '.78rem', lineHeight: 1.5 }}>
+            Le mémo n&apos;est pas généré automatiquement pour économiser le quota IA.
+          </div>
+          <button
+            type="button"
+            onClick={onGenerate}
+            style={{
+              background: 'rgba(24,195,126,0.12)',
+              border: '1px solid rgba(24,195,126,0.35)',
+              borderRadius: 8,
+              color: 'var(--green)',
+              padding: '6px 12px',
+              cursor: 'pointer',
+              fontSize: '.75rem',
+              fontFamily: 'var(--mono)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Générer le mémo
+          </button>
         </div>
       )}
       {error && !loading && (
@@ -1613,22 +1637,47 @@ function SectionHistorique({ history, loading }) {
 
 // ── Graphique de cours boursier ───────────────────────────
 
-const PERIODS = ['1m', '3m', '6m', '1y', '2y']
+const PRICE_PERIODS = [
+  { value: '1d', label: '1j' },
+  { value: '1w', label: '1s' },
+  { value: '1m', label: '1m' },
+  { value: '3m', label: '3m' },
+  { value: '6m', label: '6m' },
+  { value: '1y', label: '1a' },
+  { value: '2y', label: '2a' },
+  { value: 'max', label: 'MAX' },
+]
 
 function PriceChart({ ticker, devise }) {
   const [period, setPeriod] = useState('1y')
   const [chartData, setChartData] = useState([])
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
+  async function fetchChartData(silent = false) {
     if (!ticker) return
-    setLoading(true)
-    setChartData([])
-    fetch(`${BASE}/stock/cours/${encodeURIComponent(ticker)}?period=${period}`)
-      .then(r => r.json())
-      .then(json => { if (json.ok) setChartData(json.data || []) })
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    if (!silent) {
+      setLoading(true)
+      setChartData([])
+    }
+    try {
+      const res = await fetch(`${BASE}/stock/cours/${encodeURIComponent(ticker)}?period=${period}`)
+      const json = await res.json()
+      if (json.ok) setChartData(json.data || [])
+    } catch {
+      if (!silent) setChartData([])
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchChartData(false)
+  }, [ticker, period])
+
+  useEffect(() => {
+    if (!ticker || period !== '1d') return
+    const id = window.setInterval(() => fetchChartData(true), 30000)
+    return () => window.clearInterval(id)
   }, [ticker, period])
 
   const isPositive = chartData.length >= 2
@@ -1640,6 +1689,9 @@ function PriceChart({ ticker, devise }) {
     if (!str) return ''
     try {
       const d = new Date(str)
+      if (period === '1d') return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+      if (period === '1w') return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
+      if (period === 'max') return d.toLocaleDateString('fr-FR', { year: '2-digit', month: 'short' })
       return d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })
     } catch { return str.slice(0, 7) }
   }
@@ -1660,21 +1712,21 @@ function PriceChart({ ticker, devise }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div className="card-label">Cours boursier</div>
         <div style={{ display: 'flex', gap: 4 }}>
-          {PERIODS.map(p => (
+          {PRICE_PERIODS.map(p => (
             <button
-              key={p}
+              key={p.value}
               type="button"
-              onClick={() => setPeriod(p)}
+              onClick={() => setPeriod(p.value)}
               style={{
-                background: period === p ? 'rgba(255,255,255,0.1)' : 'none',
-                border: `1px solid ${period === p ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.07)'}`,
+                background: period === p.value ? 'rgba(255,255,255,0.1)' : 'none',
+                border: `1px solid ${period === p.value ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.07)'}`,
                 borderRadius: 6, padding: '2px 8px',
-                color: period === p ? 'var(--text)' : 'var(--text-3)',
+                color: period === p.value ? 'var(--text)' : 'var(--text-3)',
                 fontSize: '.7rem', fontFamily: 'var(--mono)', cursor: 'pointer',
                 transition: 'all .15s',
               }}
             >
-              {p}
+              {p.label}
             </button>
           ))}
         </div>
@@ -1693,7 +1745,7 @@ function PriceChart({ ticker, devise }) {
       )}
 
       {!loading && chartData.length >= 2 && (
-        <ResponsiveContainer width="100%" height={140}>
+        <ResponsiveContainer width="100%" height={180}>
           <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
@@ -1912,11 +1964,9 @@ export default function StockAnalyse() {
       if (!json.ok) throw new Error(json.erreur || 'Données introuvables')
       _store.data = json
       setData(json)
-      // Ne regenerer le memo que si pas deja en cache pour ce ticker
+      // En mode manuel, on ne lance jamais de génération automatique.
       if (_store.memosCache[t] && !force) {
         setMemo(_store.memosCache[t])
-      } else {
-        loadMemo(json, null)
       }
     } catch (e) {
       if (e?.name === 'AbortError') setError('Délai dépassé — réessayez.')
@@ -2123,17 +2173,6 @@ export default function StockAnalyse() {
                   <div style={{ fontSize: '.82rem', fontFamily: 'var(--mono)', color: signColor(d.variation_jour), marginTop: 2 }}>
                     {d.variation_jour != null ? (d.variation_jour >= 0 ? '+' : '') + pct(d.variation_jour) : ''}
                   </div>
-                  {lastPriceUpdate && (
-                    <div style={{ fontSize: '.68rem', color: 'rgba(24,195,126,0.7)', marginTop: 4, fontFamily: 'var(--mono)' }}>
-                      ↻ en direct {(() => {
-                        const now = new Date()
-                        const diff = Math.round((now - lastPriceUpdate) / 1000)
-                        if (diff < 60) return 'à l\'instant'
-                        if (diff < 120) return 'il y a 1 min'
-                        return `il y a ${Math.round(diff / 60)} min`
-                      })()}
-                    </div>
-                  )}
                 </div>
                 {(() => {
                   const isFav = favorites.some(f => f.ticker === d.ticker)
@@ -2187,6 +2226,7 @@ export default function StockAnalyse() {
               loading={memoLoading}
               error={memoError}
               onRetry={() => loadMemo(data, history)}
+              onGenerate={() => loadMemo(data, history)}
             />
           )}
 

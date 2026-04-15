@@ -4530,7 +4530,7 @@ def api_stock_prix_live(ticker):
 def api_stock_cours(ticker):
     ticker = str(ticker).strip().upper()
     period = request.args.get("period", "1y")
-    if period not in ("1m", "3m", "6m", "1y", "2y", "5y"):
+    if period not in ("1d", "1w", "1m", "3m", "6m", "1y", "2y", "5y", "max"):
         period = "1y"
     data = prices.get_cours_chart(ticker, period)
     if not data:

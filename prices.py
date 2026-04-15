@@ -1773,6 +1773,49 @@ def _fetch_historique_ticker(ticker: str, start_ts: int, end_ts: int) -> dict[st
         return {}
 
 
+def _fetch_chart_series(ticker: str, params: dict) -> list[dict]:
+    """Retourne une serie de points [{date, cours}] depuis Yahoo Finance chart."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+
+    def _call(base: str):
+        r = _get_session().get(url.replace("query1", base), params=params, timeout=20)
+        r.raise_for_status()
+        d = r.json()
+        if d.get("chart", {}).get("error"):
+            return None
+        res = d.get("chart", {}).get("result", [])
+        return res[0] if res else None
+
+    try:
+        result = _call("query1")
+        if result is None:
+            result = _call("query2")
+        if result is None:
+            return []
+
+        timestamps = result.get("timestamp", [])
+        closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+        if not timestamps or not closes:
+            return []
+
+        intraday = str(params.get("interval", "1d")) != "1d"
+        series = []
+        for ts, close in zip(timestamps, closes):
+            if close is None:
+                continue
+            dt = datetime.utcfromtimestamp(ts)
+            date_str = dt.strftime("%Y-%m-%dT%H:%M:%S") if intraday else dt.strftime("%Y-%m-%d")
+            series.append({"date": date_str, "cours": float(close)})
+
+        if len(series) > 500:
+            step = max(1, len(series) // 300)
+            series = series[::step]
+        return series
+    except Exception as e:
+        logger.warning("_fetch_chart_series(%s): %s", ticker, e)
+        return []
+
+
 def get_close_price_on_or_before(ticker: str, date_str: str, lookback_days: int = 15) -> float | None:
     """
     Retourne le dernier cours de clôture disponible à la date demandée
@@ -1807,6 +1850,8 @@ def get_close_price_on_or_before(ticker: str, date_str: str, lookback_days: int 
 def get_prix_live(ticker: str) -> dict | None:
     """
     Retourne cours, variation_jour et 52w en temps quasi-reel (Yahoo v8, pas de cache long).
+    variation_jour est renvoye en decimale (0.0123 = +1.23%) pour rester
+    compatible avec le format utilise par get_stock_fundamentals.
     Utilise uniquement la meta du chart range=1d pour minimiser la latence.
     """
     ticker = str(ticker or "").strip().upper()
@@ -1824,7 +1869,8 @@ def get_prix_live(ticker: str) -> dict | None:
             if not cur:
                 continue
             prev = _safe_float(meta.get("chartPreviousClose") or meta.get("previousClose"))
-            var = round((cur - prev) / prev * 100, 2) if prev and cur else None
+            # Garder le meme format que le reste de l'app: ratio decimal.
+            var = round((cur - prev) / prev, 4) if prev and cur else None
             return {
                 "cours": cur,
                 "variation_jour": var,
@@ -1838,19 +1884,39 @@ def get_prix_live(ticker: str) -> dict | None:
 
 
 def get_cours_chart(ticker: str, period: str = "1y") -> list[dict]:
-    """Retourne les clotures journalieres pour la periode donnee (Yahoo Finance v8)."""
+    """Retourne les cours pour la periode donnee (Yahoo Finance v8)."""
     import time as _time
+    ticker = str(ticker).strip().upper()
+    period = str(period or "1y").strip().lower()
+    end_ts = int(_time.time())
+
+    if period == "1d":
+        # Intraday: points de 5 minutes, rafraichis cote frontend toutes les 30s.
+        return _fetch_chart_series(ticker, {"interval": "5m", "range": "1d", "includePrePost": "false"})
+
+    if period == "1w":
+        start_ts = end_ts - 7 * 86400
+        return _fetch_chart_series(ticker, {
+            "interval": "1d",
+            "period1": start_ts,
+            "period2": end_ts,
+            "includePrePost": "false",
+            "events": "div,splits",
+        })
+
+    if period == "max":
+        return _fetch_chart_series(ticker, {"interval": "1d", "range": "max", "includePrePost": "false", "events": "div,splits"})
+
     periods = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "2y": 730, "5y": 1825}
     days = periods.get(period, 365)
-    end_ts = int(_time.time())
     start_ts = end_ts - days * 86400
-    hist = _fetch_historique_ticker(str(ticker).strip().upper(), start_ts, end_ts)
-    result = [{"date": k, "cours": v} for k, v in sorted(hist.items())]
-    # Sous-echantillonner si > 500 points pour limiter le payload
-    if len(result) > 500:
-        step = max(1, len(result) // 300)
-        result = result[::step]
-    return result
+    return _fetch_chart_series(ticker, {
+        "interval": "1d",
+        "period1": start_ts,
+        "period2": end_ts,
+        "includePrePost": "false",
+        "events": "div,splits",
+    })
 
 
 def reconstruire_historique_portfolio(mouvements_par_ticker: dict) -> list[dict]:

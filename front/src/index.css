@@ -347,7 +347,7 @@ a {
 	backdrop-filter: blur(18px);
 	border-bottom: 1px solid var(--line);
 	position: sticky;
-	top: 0;
+	top: var(--demo-banner-h);
 	z-index: 50;
 }
 
