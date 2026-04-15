@@ -818,6 +818,12 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id, created_at DESC)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at)")
 
+    # Migration: pru_at_sale sur les ventes pour conserver le PRU au moment de la cession.
+    try:
+        c.execute("ALTER TABLE mouvements ADD COLUMN pru_at_sale REAL")
+    except Exception:
+        pass
+
     # Métadonnées de schéma pour piloter la compatibilité import/export des backups.
     _ensure_meta_table(conn)
     set_schema_version(SCHEMA_VERSION, conn=conn)
@@ -1780,13 +1786,13 @@ def add_mouvement(data):
     cur = conn.execute("""
         INSERT INTO mouvements (
             actif_id, enveloppe, type_operation, date_operation, quantite,
-            prix_unitaire, frais, montant_brut, montant_net, pv_realisee
+            prix_unitaire, frais, montant_brut, montant_net, pv_realisee, pru_at_sale
         )
         VALUES (
             :actif_id, :enveloppe, :type_operation, :date_operation, :quantite,
-            :prix_unitaire, :frais, :montant_brut, :montant_net, :pv_realisee
+            :prix_unitaire, :frais, :montant_brut, :montant_net, :pv_realisee, :pru_at_sale
         )
-    """, data)
+    """, {**data, "pru_at_sale": data.get("pru_at_sale")})
     _record_sync_upsert(conn, "mouvements", int(cur.lastrowid))
     conn.commit()
     conn.close()
@@ -1809,9 +1815,10 @@ def update_mouvement(mouvement_id, data):
             frais=:frais,
             montant_brut=:montant_brut,
             montant_net=:montant_net,
-            pv_realisee=:pv_realisee
+            pv_realisee=:pv_realisee,
+            pru_at_sale=COALESCE(:pru_at_sale, pru_at_sale)
         WHERE id=:id
-    """, {**data, "id": mouvement_id})
+    """, {**data, "id": mouvement_id, "pru_at_sale": data.get("pru_at_sale")})
     _record_sync_upsert(conn, "mouvements", int(mouvement_id))
     conn.commit()
     conn.close()

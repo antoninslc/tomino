@@ -105,7 +105,9 @@ export default function Rapport() {
   const alertes = data?.alertes || []
 
   const variation = Number(data?.variation || 0)
+  const variationMarche = data?.variation_marche != null ? Number(data.variation_marche) : null
   const varColor = variation >= 0 ? 'var(--green)' : 'var(--red)'
+  const marcheColor = variationMarche != null ? (variationMarche >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--text-2)'
   const sparkColor = variation >= 0 ? '#4ade80' : '#f87171'
   const pvColor = Number(stats.pv_realisee || 0) >= 0 ? 'var(--green)' : 'var(--red)'
 
@@ -157,7 +159,7 @@ export default function Rapport() {
             <div className="stat">
               <div className="stat-label">Patrimoine début</div>
               <div className="stat-value dim">{eur(data?.valeur_debut)}</div>
-              <div className="stat-sub">1er {labelMois(mois)}</div>
+              <div className="stat-sub">1er relevé du mois</div>
             </div>
             <div className="stat">
               <div className="stat-label">Patrimoine fin</div>
@@ -165,7 +167,7 @@ export default function Rapport() {
               <div className="stat-sub">Dernier relevé du mois</div>
             </div>
             <div className="stat">
-              <div className="stat-label">Variation</div>
+              <div className="stat-label">Variation totale</div>
               <div className="stat-value" style={{ color: varColor }}>
                 {data?.variation != null ? eur(data.variation) : '—'}
               </div>
@@ -177,19 +179,46 @@ export default function Rapport() {
 
           <div className="g3 fade-up" style={{ marginBottom: 20 }}>
             <div className="stat">
+              <div className="stat-label">Performance marché</div>
+              <div className="stat-value" style={{ color: marcheColor }}>
+                {variationMarche != null ? eur(variationMarche) : '—'}
+              </div>
+              <div className="stat-sub" style={{ color: marcheColor }}>
+                {data?.variation_marche_pct != null ? pct(data.variation_marche_pct) : '—'}
+              </div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Capital investi net</div>
+              <div className="stat-value dim">{eur(stats.investissement_net)}</div>
+              <div className="stat-sub">
+                {mouvements.filter((m) => m.type_operation === 'achat').length} achat(s),{' '}
+                {mouvements.filter((m) => m.type_operation === 'vente').length} vente(s)
+              </div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">PV réalisée</div>
+              <div className="stat-value" style={{ color: pvColor }}>{eur(stats.pv_realisee)}</div>
+              <div className="stat-sub">
+                {mouvements.filter((m) => m.type_operation === 'vente').length} cession(s)
+              </div>
+            </div>
+          </div>
+
+          <div className="g3 fade-up" style={{ marginBottom: 20 }}>
+            <div className="stat">
               <div className="stat-label">Dividendes perçus</div>
               <div className="stat-value green">{eur(stats.total_dividendes)}</div>
               <div className="stat-sub">{stats.nb_dividendes || 0} versement(s)</div>
             </div>
             <div className="stat">
-              <div className="stat-label">Achats</div>
+              <div className="stat-label">Achats bruts</div>
               <div className="stat-value dim">{eur(stats.total_achats)}</div>
               <div className="stat-sub">{mouvements.filter((m) => m.type_operation === 'achat').length} opération(s)</div>
             </div>
             <div className="stat">
-              <div className="stat-label">PV réalisée</div>
-              <div className="stat-value" style={{ color: pvColor }}>{eur(stats.pv_realisee)}</div>
-              <div className="stat-sub">{mouvements.filter((m) => m.type_operation === 'vente').length} vente(s)</div>
+              <div className="stat-label">Produit des ventes</div>
+              <div className="stat-value dim">{eur(stats.total_ventes)}</div>
+              <div className="stat-sub">{mouvements.filter((m) => m.type_operation === 'vente').length} cession(s)</div>
             </div>
           </div>
 
@@ -213,7 +242,11 @@ export default function Rapport() {
             <div className="card fade-up" style={{ marginBottom: 20 }}>
               <div className="card-label" style={{ marginBottom: 0 }}>Évolution du patrimoine</div>
               <div className="empty" style={{ padding: '20px 0' }}>
-                <div className="empty-icon">◌</div>
+                <div className="empty-icon">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                  </svg>
+                </div>
                 <p>Aucune donnée historique pour ce mois.</p>
                 <span style={{ fontSize: '.78rem', color: 'var(--text-3)' }}>
                   Les snapshots quotidiens apparaissent ici une fois enregistrés.
@@ -239,6 +272,7 @@ export default function Rapport() {
                       <th>Enveloppe</th>
                       <th>Qté</th>
                       <th>Prix unit.</th>
+                      <th>PRU cession</th>
                       <th>Montant net</th>
                       <th>PV réalisée</th>
                     </tr>
@@ -264,6 +298,9 @@ export default function Rapport() {
                           <td className="td-mono dim">{m.enveloppe || '-'}</td>
                           <td className="td-mono">{m.quantite != null ? Number(m.quantite).toLocaleString('fr-FR') : '-'}</td>
                           <td className="td-mono">{m.prix_unitaire != null ? eur(m.prix_unitaire) : '-'}</td>
+                          <td className="td-mono dim">
+                            {m.type_operation === 'vente' && m.pru_at_sale != null ? eur(m.pru_at_sale) : '-'}
+                          </td>
                           <td className="td-mono strong">{eur(m.montant_net)}</td>
                           <td className={m.pv_realisee != null ? pvCls : 'td-mono dim'}>
                             {m.pv_realisee != null ? eur(m.pv_realisee) : '-'}
@@ -278,7 +315,14 @@ export default function Rapport() {
 
             {!mouvements.length && (
               <div className="empty">
-                <div className="empty-icon">□</div>
+                <div className="empty-icon">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <line x1="3" y1="9" x2="21" y2="9" />
+                    <line x1="3" y1="15" x2="21" y2="15" />
+                    <line x1="9" y1="9" x2="9" y2="21" />
+                  </svg>
+                </div>
                 <p>Aucune opération ce mois-ci.</p>
               </div>
             )}
@@ -322,7 +366,13 @@ export default function Rapport() {
 
             {!dividendes.length && (
               <div className="empty">
-                <div className="empty-icon">◌</div>
+                <div className="empty-icon">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
+                    <circle cx="12" cy="12" r="9" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="15" x2="12.01" y2="15" strokeWidth="2" />
+                  </svg>
+                </div>
                 <p>Aucun dividende perçu ce mois-ci.</p>
               </div>
             )}

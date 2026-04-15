@@ -3288,6 +3288,7 @@ def api_actifs_operation(actif_id):
             "montant_brut": round(montant_brut, 4),
             "montant_net": round(montant_net_vente, 4),
             "pv_realisee": round(pv_realisee, 4),
+            "pru_at_sale": round(pru_actuel, 6),
         }
         db.add_mouvement(mouvement)
 
@@ -3359,10 +3360,18 @@ def api_mouvement_update(mouvement_id):
         if abs(new_qty_total) < 1e-9:
             new_qty_total = 0.0
 
+        # PRU de référence : on utilise pru_at_sale stocké dans le mouvement d'origine
+        # (PRU au moment de la cession) pour que la PV reste cohérente même si
+        # l'actif a été racheté depuis. Fallback sur le PRU courant si non disponible.
+        pru_at_sale = mouvement.get("pru_at_sale")
+        if pru_at_sale is None:
+            pru_at_sale = _to_float(actif.get("pru"), 0)
+        else:
+            pru_at_sale = _to_float(pru_at_sale, 0)
         pru_actuel = _to_float(actif.get("pru"), 0)
         new_pru = pru_actuel if new_qty_total > 0 else 0.0
         new_montant_net = round(new_brut - data["frais"], 4)
-        new_pv_realisee = round(new_montant_net - (data["quantite"] * pru_actuel), 4)
+        new_pv_realisee = round(new_montant_net - (data["quantite"] * pru_at_sale), 4)
 
     db.update_actif(actif["id"], {
         "nom": actif.get("nom", ""),
@@ -3383,6 +3392,9 @@ def api_mouvement_update(mouvement_id):
         "montant_brut": round(new_brut, 4),
         "montant_net": new_montant_net,
         "pv_realisee": new_pv_realisee,
+        # pru_at_sale conservé tel quel (COALESCE dans DB), sauf si c'est une vente
+        # sans pru_at_sale stocké — on l'initialise maintenant depuis pru_at_sale calculé.
+        "pru_at_sale": round(pru_at_sale, 6) if op_type == "vente" else None,
     })
 
     _invalidate_resume_cache()
@@ -4408,12 +4420,13 @@ def api_rapport():
         variation = round(valeur_fin - valeur_debut, 2)
         variation_pct = round((variation / valeur_debut * 100), 2) if valeur_debut else 0
 
-    # Mouvements du mois
+    # Mouvements du mois (hors snapshots qui sont des instantanés techniques)
     mov_rows = conn.execute(
         """SELECT m.*, a.ticker, a.nom AS actif_nom
            FROM mouvements m
            LEFT JOIN actifs a ON a.id = m.actif_id
            WHERE m.date_operation >= ? AND m.date_operation <= ?
+             AND m.type_operation != 'snapshot'
            ORDER BY m.date_operation DESC, m.id DESC""",
         (debut, fin),
     ).fetchall()
@@ -4449,6 +4462,16 @@ def api_rapport():
         (m.get("pv_realisee") or 0) for m in mouvements if m.get("pv_realisee") is not None
     ), 2)
 
+    # Performance de marché = variation totale - flux de capitaux nets.
+    # Achats : cash sorti, portefeuille monte. Ventes : titres sortis, cash récupéré (non tracké).
+    # flux_nets = achats - ventes (positif = argent injecté, négatif = argent retiré net)
+    # variation_marche = variation - flux_nets (ce qui reste est imputable au marché seul)
+    investissement_net = round(total_achats - total_ventes, 2)
+    variation_marche = round(variation - investissement_net, 2) if variation is not None else None
+    variation_marche_pct = None
+    if variation_marche is not None and valeur_debut:
+        variation_marche_pct = round(variation_marche / valeur_debut * 100, 2)
+
     return jsonify({
         "mois": mois,
         "debut": debut,
@@ -4458,6 +4481,9 @@ def api_rapport():
         "valeur_fin": valeur_fin,
         "variation": variation,
         "variation_pct": variation_pct,
+        "variation_marche": variation_marche,
+        "variation_marche_pct": variation_marche_pct,
+        "investissement_net": investissement_net,
         "mouvements": mouvements,
         "dividendes": dividendes,
         "alertes": alertes,
@@ -4466,6 +4492,7 @@ def api_rapport():
             "total_achats": total_achats,
             "total_ventes": total_ventes,
             "pv_realisee": pv_realisee,
+            "investissement_net": investissement_net,
             "nb_mouvements": len(mouvements),
             "nb_dividendes": len(dividendes),
             "nb_alertes": len(alertes),
