@@ -4517,6 +4517,18 @@ def api_stock_historique(ticker):
     return jsonify({"ok": True, **data})
 
 
+@app.route("/api/stock/cours/<path:ticker>")
+def api_stock_cours(ticker):
+    ticker = str(ticker).strip().upper()
+    period = request.args.get("period", "1y")
+    if period not in ("1m", "3m", "6m", "1y", "2y", "5y"):
+        period = "1y"
+    data = prices.get_cours_chart(ticker, period)
+    if not data:
+        return jsonify({"ok": False, "erreur": "Donnees de cours indisponibles"}), 404
+    return jsonify({"ok": True, "ticker": ticker, "period": period, "data": data})
+
+
 @app.route("/api/stock/memo", methods=["POST"])
 def api_stock_memo():
     payload = request.get_json(silent=True) or {}

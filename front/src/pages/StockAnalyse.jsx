@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
-  Bar, BarChart, CartesianGrid, ComposedChart, Line,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Line,
   ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
 } from 'recharts'
 import { apiBase as BASE } from '../api'
@@ -1611,6 +1611,136 @@ function SectionHistorique({ history, loading }) {
   )
 }
 
+// ── Graphique de cours boursier ───────────────────────────
+
+const PERIODS = ['1m', '3m', '6m', '1y', '2y']
+
+function PriceChart({ ticker, devise }) {
+  const [period, setPeriod] = useState('1y')
+  const [chartData, setChartData] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!ticker) return
+    setLoading(true)
+    setChartData([])
+    fetch(`${BASE}/stock/cours/${encodeURIComponent(ticker)}?period=${period}`)
+      .then(r => r.json())
+      .then(json => { if (json.ok) setChartData(json.data || []) })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [ticker, period])
+
+  const isPositive = chartData.length >= 2
+    ? chartData[chartData.length - 1].cours >= chartData[0].cours
+    : true
+  const color = isPositive ? '#18c37e' : '#f87171'
+
+  function fmtAxisDate(str) {
+    if (!str) return ''
+    try {
+      const d = new Date(str)
+      return d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })
+    } catch { return str.slice(0, 7) }
+  }
+
+  function fmtTooltipDate(str) {
+    if (!str) return ''
+    try {
+      return new Date(str).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+    } catch { return str }
+  }
+
+  const tickCount = 5
+  const step = chartData.length > tickCount ? Math.floor(chartData.length / tickCount) : 1
+  const xTicks = chartData.filter((_, i) => i % step === 0).map(d => d.date)
+
+  return (
+    <div className="card fade-up" style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div className="card-label">Cours boursier</div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {PERIODS.map(p => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setPeriod(p)}
+              style={{
+                background: period === p ? 'rgba(255,255,255,0.1)' : 'none',
+                border: `1px solid ${period === p ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.07)'}`,
+                borderRadius: 6, padding: '2px 8px',
+                color: period === p ? 'var(--text)' : 'var(--text-3)',
+                fontSize: '.7rem', fontFamily: 'var(--mono)', cursor: 'pointer',
+                transition: 'all .15s',
+              }}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && (
+        <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: '.8rem', fontFamily: 'var(--mono)' }}>
+          Chargement...
+        </div>
+      )}
+
+      {!loading && chartData.length < 2 && (
+        <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)', fontSize: '.8rem', fontFamily: 'var(--mono)' }}>
+          Donnees indisponibles
+        </div>
+      )}
+
+      {!loading && chartData.length >= 2 && (
+        <ResponsiveContainer width="100%" height={140}>
+          <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={color} stopOpacity={0.18} />
+                <stop offset="95%" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <XAxis
+              dataKey="date"
+              ticks={xTicks}
+              tickFormatter={fmtAxisDate}
+              tick={{ fontSize: 10, fill: 'var(--text-3)', fontFamily: 'var(--mono)' }}
+              axisLine={false}
+              tickLine={false}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              domain={['auto', 'auto']}
+              tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)}
+              tick={{ fontSize: 10, fill: 'var(--text-3)', fontFamily: 'var(--mono)' }}
+              axisLine={false}
+              tickLine={false}
+              width={46}
+            />
+            <RTooltip
+              contentStyle={{ background: '#1a1d22', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: '.78rem', fontFamily: 'var(--mono)' }}
+              labelStyle={{ color: 'var(--text-3)', marginBottom: 4 }}
+              labelFormatter={fmtTooltipDate}
+              formatter={(v) => [`${Number(v).toFixed(2)} ${devise || ''}`, 'Cours']}
+            />
+            <Area
+              type="monotone"
+              dataKey="cours"
+              stroke={color}
+              strokeWidth={1.8}
+              fill="url(#priceGrad)"
+              dot={false}
+              activeDot={{ r: 3, fill: color, stroke: 'none' }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  )
+}
+
 // ── Page principale ────────────────────────────────────────
 
 export default function StockAnalyse() {
@@ -1631,8 +1761,21 @@ export default function StockAnalyse() {
   const [memo, setMemo] = useState(() => _store.memo)
   const [memoLoading, setMemoLoading] = useState(false)
   const [memoError, setMemoError] = useState('')
+  const [favorites, setFavorites] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('tomino_stock_favorites') || '[]') } catch { return [] }
+  })
   const suggestRef = useRef(null)
   const debounceRef = useRef(null)
+
+  function toggleFavorite() {
+    if (!data) return
+    const isFav = favorites.some(f => f.ticker === data.ticker)
+    const next = isFav
+      ? favorites.filter(f => f.ticker !== data.ticker)
+      : [...favorites.slice(-19), { ticker: data.ticker, nom: data.nom_court || data.nom, exchange: data.exchange }]
+    setFavorites(next)
+    localStorage.setItem('tomino_stock_favorites', JSON.stringify(next))
+  }
 
   useEffect(() => {
     _store.data = data
@@ -1792,6 +1935,36 @@ export default function StockAnalyse() {
         </div>
       </section>
 
+      {/* Favoris */}
+      {favorites.length > 0 && (
+        <div className="fade-up" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+          {favorites.map((fav) => (
+            <button
+              key={fav.ticker}
+              type="button"
+              onClick={() => {
+                setQuery(`${fav.nom} (${fav.ticker})`)
+                loadStock(fav.ticker)
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: ticker === fav.ticker ? 'rgba(246,201,14,0.12)' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${ticker === fav.ticker ? 'rgba(246,201,14,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                borderRadius: 20, padding: '4px 11px 4px 8px',
+                color: ticker === fav.ticker ? '#f6c90e' : 'var(--text-2)',
+                fontSize: '.78rem', fontFamily: 'var(--mono)', cursor: 'pointer',
+                transition: 'all .15s',
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="#f6c90e" stroke="#f6c90e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+              {fav.ticker}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Barre de recherche */}
       <div ref={suggestRef} className="fade-up" style={{ position: 'relative', zIndex: 100, maxWidth: 560, marginBottom: 32 }}>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1910,13 +2083,40 @@ export default function StockAnalyse() {
                   {d.pays && <> &middot; {tr(PAYS_FR, d.pays)}</>}
                 </div>
               </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
-                  {val(d.cours)} <span style={{ fontSize: '.8rem', color: 'var(--text-3)' }}>{d.devise}</span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexShrink: 0 }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                    {val(d.cours)} <span style={{ fontSize: '.8rem', color: 'var(--text-3)' }}>{d.devise}</span>
+                  </div>
+                  <div style={{ fontSize: '.82rem', fontFamily: 'var(--mono)', color: signColor(d.variation_jour), marginTop: 2 }}>
+                    {d.variation_jour != null ? (d.variation_jour >= 0 ? '+' : '') + pct(d.variation_jour) : ''}
+                  </div>
                 </div>
-                <div style={{ fontSize: '.82rem', fontFamily: 'var(--mono)', color: signColor(d.variation_jour), marginTop: 2 }}>
-                  {d.variation_jour != null ? (d.variation_jour >= 0 ? '+' : '') + pct(d.variation_jour) : ''}
-                </div>
+                {(() => {
+                  const isFav = favorites.some(f => f.ticker === d.ticker)
+                  return (
+                    <button
+                      type="button"
+                      onClick={toggleFavorite}
+                      title={isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        padding: '4px 2px', marginTop: 2, lineHeight: 1, flexShrink: 0,
+                        transition: 'transform .15s',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.2)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24"
+                        fill={isFav ? '#f6c90e' : 'none'}
+                        stroke={isFav ? '#f6c90e' : 'rgba(255,255,255,0.3)'}
+                        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                      >
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                    </button>
+                  )
+                })()}
               </div>
             </div>
 
@@ -1946,6 +2146,8 @@ export default function StockAnalyse() {
               onRetry={() => loadMemo(data, history)}
             />
           )}
+
+          <PriceChart ticker={d.ticker} devise={d.devise} />
 
           {/* Cours & Marché */}
           <div className="g3 fade-up" style={{ marginBottom: 20 }}>

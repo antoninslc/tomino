@@ -1804,6 +1804,22 @@ def get_close_price_on_or_before(ticker: str, date_str: str, lookback_days: int 
     return None
 
 
+def get_cours_chart(ticker: str, period: str = "1y") -> list[dict]:
+    """Retourne les clotures journalieres pour la periode donnee (Yahoo Finance v8)."""
+    import time as _time
+    periods = {"1m": 30, "3m": 90, "6m": 180, "1y": 365, "2y": 730, "5y": 1825}
+    days = periods.get(period, 365)
+    end_ts = int(_time.time())
+    start_ts = end_ts - days * 86400
+    hist = _fetch_historique_ticker(str(ticker).strip().upper(), start_ts, end_ts)
+    result = [{"date": k, "cours": v} for k, v in sorted(hist.items())]
+    # Sous-echantillonner si > 500 points pour limiter le payload
+    if len(result) > 500:
+        step = max(1, len(result) // 300)
+        result = result[::step]
+    return result
+
+
 def reconstruire_historique_portfolio(mouvements_par_ticker: dict) -> list[dict]:
     """
     Reconstruit l'historique journalier du patrimoine actions/or.
