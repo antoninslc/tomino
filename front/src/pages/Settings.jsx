@@ -396,16 +396,34 @@ export default function Settings() {
   const [confirmCompte, setConfirmCompte] = useState(null)
   const [blurAmounts, setBlurAmounts] = useState(() => localStorage.getItem(BLUR_KEY) === '1')
   const [appVersion, setAppVersion] = useState('')
+  const [minimizeToTray, setMinimizeToTray] = useState(false)
+  const isTauri = typeof window !== 'undefined' && !!window.__TAURI__
 
   useEffect(() => {
     if (window.__TAURI__) {
       import('@tauri-apps/api/app')
         .then(m => m.getVersion().then(setAppVersion).catch(() => {}))
         .catch(() => {})
+      // Lire la preference systray depuis Rust
+      window.__TAURI__.invoke('get_minimize_to_tray')
+        .then(setMinimizeToTray)
+        .catch(() => {})
     } else {
       setAppVersion('Web')
     }
   }, [])
+
+  async function handleMinimizeToTrayToggle() {
+    const next = !minimizeToTray
+    setMinimizeToTray(next)
+    if (isTauri) {
+      try {
+        await window.__TAURI__.invoke('set_minimize_to_tray', { enabled: next })
+      } catch (e) {
+        setMinimizeToTray(!next) // rollback
+      }
+    }
+  }
 
   useEffect(() => {
     if (!confirmCompte) return
@@ -1479,6 +1497,33 @@ export default function Settings() {
               <span style={{ color: 'var(--text-3)', fontSize: '1.1rem' }}>›</span>
             </button>
           </div>
+
+          {isTauri && (
+            <div className="settings-group fade-up">
+              <div className="settings-group-label">Comportement</div>
+              <div
+                className="settings-row"
+                onClick={handleMinimizeToTrayToggle}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="settings-row-info">
+                  <div className="settings-row-title">Reduire dans la barre des taches</div>
+                  <div className="settings-row-sub">
+                    Fermer la fenetre cache Tomino dans la zone de notification au lieu de quitter.
+                    Cliquer sur l&apos;icone ou &laquo;&nbsp;Ouvrir Tomino&nbsp;&raquo; pour la rouvrir.
+                    Utilisez &laquo;&nbsp;Quitter&nbsp;&raquo; dans le menu pour fermer completement.
+                  </div>
+                </div>
+                <button
+                  className={`toggle-switch${minimizeToTray ? ' on' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); handleMinimizeToTrayToggle() }}
+                  type="button"
+                  aria-pressed={minimizeToTray}
+                  aria-label="Reduire dans la barre des taches a la fermeture"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="settings-group fade-up">
             <div className="settings-group-label">Confidentialité</div>
