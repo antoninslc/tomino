@@ -4517,6 +4517,15 @@ def api_stock_historique(ticker):
     return jsonify({"ok": True, **data})
 
 
+@app.route("/api/stock/prix-live/<path:ticker>")
+def api_stock_prix_live(ticker):
+    ticker = str(ticker).strip().upper()
+    data = prices.get_prix_live(ticker)
+    if not data:
+        return jsonify({"ok": False, "erreur": "Cours indisponible"}), 404
+    return jsonify({"ok": True, **data})
+
+
 @app.route("/api/stock/cours/<path:ticker>")
 def api_stock_cours(ticker):
     ticker = str(ticker).strip().upper()

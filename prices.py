@@ -1804,6 +1804,39 @@ def get_close_price_on_or_before(ticker: str, date_str: str, lookback_days: int 
     return None
 
 
+def get_prix_live(ticker: str) -> dict | None:
+    """
+    Retourne cours, variation_jour et 52w en temps quasi-reel (Yahoo v8, pas de cache long).
+    Utilise uniquement la meta du chart range=1d pour minimiser la latence.
+    """
+    ticker = str(ticker or "").strip().upper()
+    if not ticker:
+        return None
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+    params = {"interval": "1d", "range": "1d", "includePrePost": "false"}
+    for base in ("query1", "query2"):
+        try:
+            r = _get_session().get(url.replace("query1", base), params=params, timeout=8)
+            if not r.ok:
+                continue
+            meta = (r.json().get("chart") or {}).get("result", [{}])[0].get("meta", {})
+            cur = _safe_float(meta.get("regularMarketPrice"))
+            if not cur:
+                continue
+            prev = _safe_float(meta.get("chartPreviousClose") or meta.get("previousClose"))
+            var = round((cur - prev) / prev * 100, 2) if prev and cur else None
+            return {
+                "cours": cur,
+                "variation_jour": var,
+                "cours_52w_haut": _safe_float(meta.get("fiftyTwoWeekHigh")),
+                "cours_52w_bas":  _safe_float(meta.get("fiftyTwoWeekLow")),
+                "devise": meta.get("currency", "EUR"),
+            }
+        except Exception:
+            continue
+    return None
+
+
 def get_cours_chart(ticker: str, period: str = "1y") -> list[dict]:
     """Retourne les clotures journalieres pour la periode donnee (Yahoo Finance v8)."""
     import time as _time

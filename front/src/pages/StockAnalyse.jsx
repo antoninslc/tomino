@@ -357,6 +357,7 @@ const _store = {
   currentTicker:  _lsInit.currentTicker  ?? '',
   history:        _lsInit.history        ?? null,
   memo:           _lsInit.memo           ?? null,
+  memoTicker:     _lsInit.memoTicker     ?? '',
 }
 
 // ── Formatters ─────────────────────────────────────────────
@@ -1764,6 +1765,7 @@ export default function StockAnalyse() {
   const [favorites, setFavorites] = useState(() => {
     try { return JSON.parse(localStorage.getItem('tomino_stock_favorites') || '[]') } catch { return [] }
   })
+  const [lastPriceUpdate, setLastPriceUpdate] = useState(null)
   const suggestRef = useRef(null)
   const debounceRef = useRef(null)
 
@@ -1815,6 +1817,31 @@ export default function StockAnalyse() {
     return () => clearTimeout(debounceRef.current)
   }, [query])
 
+  // Polling cours en temps quasi-reel (30s) — uniquement cours + variation, sans recharger les fondamentaux ni le memo
+  useEffect(() => {
+    if (!ticker) return
+    const poll = async () => {
+      try {
+        const res = await fetch(`${BASE}/stock/prix-live/${encodeURIComponent(ticker)}`)
+        const json = await res.json()
+        if (!json.ok) return
+        setData(prev => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            cours: json.cours ?? prev.cours,
+            variation_jour: json.variation_jour ?? prev.variation_jour,
+            cours_52w_haut: json.cours_52w_haut ?? prev.cours_52w_haut,
+            cours_52w_bas:  json.cours_52w_bas  ?? prev.cours_52w_bas,
+          }
+        })
+        setLastPriceUpdate(new Date())
+      } catch {}
+    }
+    const id = setInterval(poll, 30000)
+    return () => clearInterval(id)
+  }, [ticker])
+
   async function loadHistory(t) {
     setHistoryLoading(true)
     setHistory(null)
@@ -1846,6 +1873,8 @@ export default function StockAnalyse() {
       const json = await res.json()
       if (!json.ok) throw new Error(json.erreur || 'Erreur Grok')
       setMemo(json.memo)
+      _store.memoTicker = stockData.ticker
+      _lsSave({ memo: json.memo, memoTicker: stockData.ticker })
     } catch (e) {
       if (e?.name === 'AbortError') setMemoError('Délai dépassé — réessayez.')
       else setMemoError(e?.message || 'Erreur lors de la generation du memo')
@@ -1861,7 +1890,9 @@ export default function StockAnalyse() {
     if (isNewTicker) {
       _store.chatMessages = []
       _store.currentTicker = t
-      _lsSave({ currentTicker: t, data: null, history: null, memo: null })
+      _store.memo = null
+      _store.memoTicker = ''
+      _lsSave({ currentTicker: t, data: null, history: null, memo: null, memoTicker: '' })
     }
     setTicker(t)
     setData(null)
@@ -1885,7 +1916,12 @@ export default function StockAnalyse() {
       if (!json.ok) throw new Error(json.erreur || 'Données introuvables')
       _store.data = json
       setData(json)
-      loadMemo(json, null)
+      // Ne regenerer le memo que si pas deja en cache pour ce ticker
+      if (_store.memo && _store.memoTicker === t && !force) {
+        setMemo(_store.memo)
+      } else {
+        loadMemo(json, null)
+      }
     } catch (e) {
       if (e?.name === 'AbortError') setError('Délai dépassé — réessayez.')
       else setError(e?.message || 'Erreur de chargement')
@@ -2091,6 +2127,17 @@ export default function StockAnalyse() {
                   <div style={{ fontSize: '.82rem', fontFamily: 'var(--mono)', color: signColor(d.variation_jour), marginTop: 2 }}>
                     {d.variation_jour != null ? (d.variation_jour >= 0 ? '+' : '') + pct(d.variation_jour) : ''}
                   </div>
+                  {lastPriceUpdate && (
+                    <div style={{ fontSize: '.68rem', color: 'rgba(24,195,126,0.7)', marginTop: 4, fontFamily: 'var(--mono)' }}>
+                      ↻ en direct {(() => {
+                        const now = new Date()
+                        const diff = Math.round((now - lastPriceUpdate) / 1000)
+                        if (diff < 60) return 'à l\'instant'
+                        if (diff < 120) return 'il y a 1 min'
+                        return `il y a ${Math.round(diff / 60)} min`
+                      })()}
+                    </div>
+                  )}
                 </div>
                 {(() => {
                   const isFav = favorites.some(f => f.ticker === d.ticker)
