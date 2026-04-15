@@ -4982,5 +4982,11 @@ if SERVE_FRONTEND:
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    import sys as _sys_main
+    if getattr(_sys_main, 'frozen', False):
+        # Execution en tant qu'executable PyInstaller — port production
+        app.run(debug=False, host='127.0.0.1', port=5000, use_reloader=False)
+    else:
+        # Execution directe Python — port dev
+        app.run(debug=True, port=5001)
 

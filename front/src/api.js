@@ -1,6 +1,8 @@
 import { apiCache, INVALIDATION_MAP } from './cache'
 
-const BASE = import.meta.env.PROD
+// En production (exe Tauri) ou en dev Tauri (sidecar tourne sur 5000) → appel direct.
+// En dev navigateur (Vite seul) → proxy Vite vers localhost:5001.
+const BASE = (import.meta.env.PROD || !!window.__TAURI__)
   ? 'http://127.0.0.1:5000/api'
   : '/api'
 

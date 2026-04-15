@@ -59,7 +59,7 @@ fn get_minimize_to_tray() -> bool {
     MINIMIZE_TO_TRAY.load(Ordering::Relaxed)
 }
 
-// ── Lancement du sidecar Flask ───────────────────────────────────────────────
+// ── Lancement du sidecar Flask en arrière-plan ──────────────────────────────
 fn kill_existing_backends() {
     #[cfg(target_os = "windows")]
     {
@@ -71,42 +71,45 @@ fn kill_existing_backends() {
     }
 }
 
-fn start_flask_server() -> Option<tauri::api::process::CommandChild> {
-    kill_existing_backends();
+/// Lance le sidecar Flask dans un thread de fond.
+/// La fenetre Tauri n'attend pas — le frontend gère le "pas encore pret" avec un retry.
+fn start_flask_server_async(state: Arc<Mutex<Option<tauri::api::process::CommandChild>>>) {
+    thread::spawn(move || {
+        kill_existing_backends();
 
-    let child_handle = match Command::new_sidecar("tomino-backend") {
-        Err(e) => {
-            eprintln!("[TOMINO] Erreur init sidecar: {:?}", e);
-            return None;
-        }
-        Ok(command) => match command.spawn() {
+        let child_handle = match Command::new_sidecar("tomino-backend") {
             Err(e) => {
-                eprintln!("[TOMINO] Erreur spawn sidecar: {:?}", e);
-                return None;
+                eprintln!("[TOMINO] Erreur init sidecar: {:?}", e);
+                return;
             }
-            Ok((_rx, child)) => {
-                eprintln!("[TOMINO] Sidecar lance, attente Flask...");
-                child
-            }
-        },
-    };
+            Ok(command) => match command.spawn() {
+                Err(e) => {
+                    eprintln!("[TOMINO] Erreur spawn sidecar: {:?}", e);
+                    return;
+                }
+                Ok((_rx, child)) => {
+                    eprintln!("[TOMINO] Sidecar lance, attente Flask...");
+                    child
+                }
+            },
+        };
 
-    let mut flask_ready = false;
-    for i in 0..30 {
-        thread::sleep(Duration::from_millis(500));
-        eprintln!("[TOMINO] Tentative Flask {}/30...", i + 1);
-        if reqwest::blocking::get("http://127.0.0.1:5000/api/status").is_ok() {
-            eprintln!("[TOMINO] Flask pret !");
-            flask_ready = true;
-            break;
+        // Stocker le handle immediatement pour qu'un kill() anticipé fonctionne
+        if let Ok(mut guard) = state.lock() {
+            *guard = Some(child_handle);
         }
-    }
 
-    if !flask_ready {
-        eprintln!("[TOMINO] ERREUR: Flask n'a pas repondu apres 15 secondes");
-    }
-
-    Some(child_handle)
+        // Attendre que Flask soit pret (jusqu'a 30s)
+        for i in 0..60 {
+            thread::sleep(Duration::from_millis(500));
+            eprintln!("[TOMINO] Tentative Flask {}/60...", i + 1);
+            if reqwest::blocking::get("http://127.0.0.1:5000/api/status").is_ok() {
+                eprintln!("[TOMINO] Flask pret !");
+                return;
+            }
+        }
+        eprintln!("[TOMINO] ERREUR: Flask n'a pas repondu apres 30 secondes");
+    });
 }
 
 fn main() {
@@ -121,13 +124,17 @@ fn main() {
 
     let tray = SystemTray::new().with_menu(tray_menu);
 
-    // ── Demarrage du backend ────────────────────────────────────────────────
-    let sidecar_state = SidecarState(Arc::new(Mutex::new(start_flask_server())));
+    // ── Demarrage du backend en arriere-plan (non bloquant) ─────────────────
+    let sidecar_arc: Arc<Mutex<Option<tauri::api::process::CommandChild>>> =
+        Arc::new(Mutex::new(None));
+    start_flask_server_async(sidecar_arc.clone());
+    let sidecar_state = SidecarState(sidecar_arc);
 
     tauri::Builder::default()
         .system_tray(tray)
         .manage(sidecar_state)
         .setup(|app| {
+            // La fenetre s'affiche immediatement — le backend arrive dans les secondes qui suivent
             if let Some(window) = app.get_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();

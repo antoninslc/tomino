@@ -408,23 +408,35 @@ export default function Dashboard() {
 
   useEffect(() => {
     let mounted = true
+    let retryCount = 0
+    const MAX_RETRIES = 15   // 15 × 2s = 30s max pendant le démarrage du backend
+    let retryTimer = null
 
-    async function loadDashboard() {
+    async function loadDashboard(isRetry = false) {
       try {
-        setLoading(true)
-        setError('')
+        if (!isRetry) { setLoading(true); setError('') }
         const [resumeData, histData, actifsData] = await Promise.all([
           api.get('/resume'),
           api.get(`/historique?limit=${HISTORY_FETCH_LIMIT}`),
           api.get('/actifs/all')
         ])
         if (!mounted) return
+        retryCount = 0
+        setError('')
         setResume(resumeData)
         setHistorique(Array.isArray(histData) ? histData : [])
         const all = Array.isArray(actifsData?.actifs) ? actifsData.actifs : []
         setActifsRecents([...all].sort((a, b) => Number(b.id || 0) - Number(a.id || 0)).slice(0, 8))
       } catch (e) {
         if (!mounted) return
+        const isNetworkError = e?.message?.toLowerCase().includes('fetch') || e?.message?.toLowerCase().includes('network')
+        if (isNetworkError && retryCount < MAX_RETRIES) {
+          // Backend pas encore prêt — réessayer silencieusement
+          retryCount++
+          setError(`__starting__`)
+          retryTimer = setTimeout(() => loadDashboard(true), 2000)
+          return
+        }
         setError(e?.message || 'Impossible de charger le tableau de bord.')
       } finally {
         if (mounted) setLoading(false)
@@ -437,6 +449,7 @@ export default function Dashboard() {
     return () => {
       mounted = false
       window.clearInterval(id)
+      if (retryTimer) clearTimeout(retryTimer)
     }
   }, [])
 
@@ -508,9 +521,13 @@ export default function Dashboard() {
 
   return (
     <section>
-      {loading && <p className="text-text2">Chargement des données...</p>}
+      {(loading || error === '__starting__') && (
+        <p className="text-text2">
+          {error === '__starting__' ? 'Démarrage de Tomino\u00a0...' : 'Chargement des données...'}
+        </p>
+      )}
 
-      {error && (
+      {error && error !== '__starting__' && (
         <div className="rounded-xl border px-4 py-3 text-sm" style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
           {error}
         </div>
