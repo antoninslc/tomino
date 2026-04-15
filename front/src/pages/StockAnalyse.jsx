@@ -356,8 +356,7 @@ const _store = {
   chatMessages:   [],
   currentTicker:  _lsInit.currentTicker  ?? '',
   history:        _lsInit.history        ?? null,
-  memo:           _lsInit.memo           ?? null,
-  memoTicker:     _lsInit.memoTicker     ?? '',
+  memosCache:     _lsInit.memosCache     ?? {},
 }
 
 // ── Formatters ─────────────────────────────────────────────
@@ -1790,11 +1789,6 @@ export default function StockAnalyse() {
   }, [history])
 
   useEffect(() => {
-    _store.memo = memo
-    if (memo) _lsSave({ memo })
-  }, [memo])
-
-  useEffect(() => {
     function onDown(e) {
       if (suggestRef.current && !suggestRef.current.contains(e.target)) setSuggestions([])
     }
@@ -1873,8 +1867,8 @@ export default function StockAnalyse() {
       const json = await res.json()
       if (!json.ok) throw new Error(json.erreur || 'Erreur Grok')
       setMemo(json.memo)
-      _store.memoTicker = stockData.ticker
-      _lsSave({ memo: json.memo, memoTicker: stockData.ticker })
+      _store.memosCache[stockData.ticker] = json.memo
+      _lsSave({ memosCache: _store.memosCache })
     } catch (e) {
       if (e?.name === 'AbortError') setMemoError('Délai dépassé — réessayez.')
       else setMemoError(e?.message || 'Erreur lors de la generation du memo')
@@ -1890,9 +1884,7 @@ export default function StockAnalyse() {
     if (isNewTicker) {
       _store.chatMessages = []
       _store.currentTicker = t
-      _store.memo = null
-      _store.memoTicker = ''
-      _lsSave({ currentTicker: t, data: null, history: null, memo: null, memoTicker: '' })
+      _lsSave({ currentTicker: t, data: null, history: null })
     }
     setTicker(t)
     setData(null)
@@ -1900,8 +1892,9 @@ export default function StockAnalyse() {
     setShowDesc(false)
     if (isNewTicker) {
       setChatOpen(false)
-      setMemo(null)
       setMemoError('')
+      // Restaurer le memo en cache pour ce ticker, sinon null
+      setMemo(_store.memosCache[t] || null)
     }
     setLoading(true)
     loadHistory(t)
@@ -1917,8 +1910,8 @@ export default function StockAnalyse() {
       _store.data = json
       setData(json)
       // Ne regenerer le memo que si pas deja en cache pour ce ticker
-      if (_store.memo && _store.memoTicker === t && !force) {
-        setMemo(_store.memo)
+      if (_store.memosCache[t] && !force) {
+        setMemo(_store.memosCache[t])
       } else {
         loadMemo(json, null)
       }
