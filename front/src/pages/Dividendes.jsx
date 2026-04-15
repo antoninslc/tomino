@@ -515,7 +515,14 @@ export default function Dividendes() {
 
         {!dividendes.length && !loading && (
           <div className="empty">
-            <div className="empty-icon">▤</div>
+            <div className="empty-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.45 }}>
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="3" y1="15" x2="21" y2="15" />
+                <line x1="9" y1="9" x2="9" y2="21" />
+              </svg>
+            </div>
             <p>Aucun dividende enregistré pour le moment.</p>
           </div>
         )}
