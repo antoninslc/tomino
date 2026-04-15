@@ -1758,7 +1758,10 @@ export default function StockAnalyse() {
   const [error, setError] = useState('')
   const [showDesc, setShowDesc] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
-  const [memo, setMemo] = useState(() => _store.memo)
+  const [memo, setMemo] = useState(() => {
+    const ticker = _store.currentTicker
+    return ticker && _store.memosCache[ticker] ? _store.memosCache[ticker] : null
+  })
   const [memoLoading, setMemoLoading] = useState(false)
   const [memoError, setMemoError] = useState('')
   const [favorites, setFavorites] = useState(() => {
