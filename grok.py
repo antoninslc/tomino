@@ -21,6 +21,89 @@ _API_URL = "https://api.x.ai/v1/chat/completions"
 _MODEL   = "grok-4-1-fast-reasoning"
 _MAX_CONTINUATIONS = 3
 
+# Tool "search" natif xAI — Grok cherche sur le web + X en temps réel.
+# Si l'API renvoie finish_reason="tool_calls", on fallback sur DuckDuckGo.
+_SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search",
+        "description": "Recherche des informations récentes sur le web (actualités, cours, événements).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Requête de recherche"},
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+def _search_ddg(query: str, max_results: int = 4) -> str:
+    """Fallback DuckDuckGo Instant Answer — sans clé API."""
+    try:
+        r = requests.get(
+            "https://api.duckduckgo.com/",
+            params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
+            headers={"User-Agent": "Tomino/1.0 (finance assistant)"},
+            timeout=8,
+        )
+        d = r.json()
+        parts = []
+        if d.get("AbstractText"):
+            parts.append(d["AbstractText"])
+        for topic in (d.get("RelatedTopics") or [])[:max_results]:
+            if isinstance(topic, dict) and topic.get("Text"):
+                parts.append(f"- {topic['Text']}")
+        return "\n".join(parts) if parts else "Aucun résultat pertinent trouvé pour cette requête."
+    except Exception as e:
+        return f"Recherche indisponible : {e}"
+
+
+def _apply_tool_calls(messages: list, tool_call_acc: dict) -> bool:
+    """
+    Exécute les tool_calls accumulés (search), ajoute les messages assistant + tool
+    dans la liste, et retourne True si au moins un tool call a été traité.
+    """
+    if not tool_call_acc:
+        return False
+    tool_calls_list = [
+        {
+            "id": tc["id"],
+            "type": "function",
+            "function": {"name": tc["name"], "arguments": tc["arguments"]},
+        }
+        for tc in tool_call_acc.values()
+    ]
+    messages.append({"role": "assistant", "content": None, "tool_calls": tool_calls_list})
+    for tc in tool_call_acc.values():
+        if tc["name"] in ("search", "web_search"):
+            try:
+                args = json.loads(tc["arguments"] or "{}")
+                query = args.get("query", "")
+            except Exception:
+                query = ""
+            result = _search_ddg(query) if query else "Requête vide."
+        else:
+            result = f"Tool '{tc['name']}' non supporté localement."
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc["id"],
+            "content": result,
+        })
+    return True
+
+
+def _accumulate_tool_call(acc: dict, tc_delta: dict) -> None:
+    """Fusionne un delta de tool_call dans l'accumulateur."""
+    idx = tc_delta.get("index", 0)
+    if idx not in acc:
+        acc[idx] = {"id": "", "name": "", "arguments": ""}
+    acc[idx]["id"] += tc_delta.get("id") or ""
+    fn = tc_delta.get("function") or {}
+    acc[idx]["name"] += fn.get("name") or ""
+    acc[idx]["arguments"] += fn.get("arguments") or ""
+
 # Tokens max par tier (system + user + réponse)
 _MAX_TOKENS_PAR_TIER = {
     "free":        512,
@@ -519,8 +602,12 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
         return
 
     usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
+    req_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    if conv_id:
+        req_headers["x-grok-conv-id"] = conv_id
+
     try:
-        for continuation_idx in range(_MAX_CONTINUATIONS + 1):
+        for iteration in range(_MAX_CONTINUATIONS + 4):  # +4 pour les iterations tool_calls
             payload = {
                 "model": _MODEL,
                 "messages": messages,
@@ -528,83 +615,65 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
                 "max_tokens": max_tokens,
                 "stream": True,
                 "stream_options": {"include_usage": True},
+                "tools": [_SEARCH_TOOL],
+                "tool_choice": "auto",
             }
-            req_headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            if conv_id:
-                req_headers["x-grok-conv-id"] = conv_id
 
             chunk_parts = []
             finish_reason = ""
+            tool_call_acc: dict = {}
 
-            with requests.post(
-                _API_URL,
-                headers=req_headers,
-                json=payload,
-                timeout=60,
-                stream=True,
-            ) as r:
+            with requests.post(_API_URL, headers=req_headers, json=payload, timeout=60, stream=True) as r:
                 r.raise_for_status()
-
                 for raw_line in r.iter_lines(decode_unicode=False):
                     if not raw_line:
                         continue
-
                     line = raw_line.decode("utf-8", errors="replace").strip()
                     if not line.startswith("data:"):
                         continue
-
                     data_str = line[5:].strip()
                     if data_str == "[DONE]":
                         break
-
                     try:
                         evt = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
-
-                    # Chunk d'usage final (choices vide, usage présent)
                     if evt.get("usage") and not evt.get("choices"):
                         u = evt["usage"]
                         usage_total["prompt_tokens"] += int(u.get("prompt_tokens") or 0)
                         usage_total["completion_tokens"] += int(u.get("completion_tokens") or 0)
                         usage_total["cached_tokens"] += int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
                         continue
-
                     choices = evt.get("choices") or []
                     if not choices:
                         continue
-
                     choice = choices[0]
-                    delta = (choice.get("delta") or {}).get("content")
-                    if delta:
-                        text = str(delta)
+                    delta = choice.get("delta") or {}
+                    if delta.get("content"):
+                        text = str(delta["content"])
                         chunk_parts.append(text)
                         yield text
-
+                    for tc in (delta.get("tool_calls") or []):
+                        _accumulate_tool_call(tool_call_acc, tc)
                     fr = choice.get("finish_reason")
                     if fr:
                         finish_reason = str(fr)
 
             chunk = "".join(chunk_parts).strip()
 
-            if finish_reason != "length":
-                break
+            if finish_reason == "tool_calls":
+                _apply_tool_calls(messages, tool_call_acc)
+                continue  # Relancer pour obtenir la réponse finale
 
-            if not chunk:
-                break
+            if finish_reason == "length" and chunk:
+                if iteration >= _MAX_CONTINUATIONS:
+                    yield "\n\n[Réponse tronquée]"
+                    break
+                messages.append({"role": "assistant", "content": chunk})
+                messages.append({"role": "user", "content": "Continue exactement où tu t'es arrêté, sans répéter ce qui précède. Termine proprement ta réponse."})
+                continue
 
-            if continuation_idx >= _MAX_CONTINUATIONS:
-                yield "\n\n[Réponse tronquée: limite de longueur atteinte.]"
-                break
-
-            messages.append({"role": "assistant", "content": chunk})
-            messages.append({
-                "role": "user",
-                "content": "Continue exactement où tu t'es arrêté, sans répéter ce qui précède. Termine proprement ta réponse.",
-            })
+            break  # finish_reason == "stop" ou autre → terminé
 
     except requests.exceptions.HTTPError as exc:
         r_ref = exc.response
@@ -818,19 +887,21 @@ Si l'utilisateur demande une opinion d'investissement, rappelle en une phrase qu
     usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
 
     try:
-        for continuation_idx in range(_MAX_CONTINUATIONS + 1):
+        for iteration in range(_MAX_CONTINUATIONS + 4):
             payload = {
                 "model": _MODEL,
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "stream": True,
                 "stream_options": {"include_usage": True},
+                "tools": [_SEARCH_TOOL],
+                "tool_choice": "auto",
             }
             r = requests.post(_API_URL, json=payload, headers=req_headers, stream=True, timeout=60)
             r.raise_for_status()
-            chunk = ""
+            chunk_parts = []
             finish = None
-            raw = ""
+            tool_call_acc: dict = {}
             for line in r.iter_lines():
                 if not line:
                     continue
@@ -844,7 +915,6 @@ Si l'utilisateur demande une opinion d'investissement, rappelle en une phrase qu
                     evt = json.loads(raw)
                 except Exception:
                     continue
-                # Chunk d'usage final (choices vide, usage présent)
                 if evt.get("usage") and not evt.get("choices"):
                     u = evt["usage"]
                     usage_total["prompt_tokens"] += int(u.get("prompt_tokens") or 0)
@@ -855,20 +925,33 @@ Si l'utilisateur demande une opinion d'investissement, rappelle en une phrase qu
                 if not choices:
                     continue
                 choice = choices[0]
-                delta = choice.get("delta", {}).get("content", "")
-                if delta:
-                    chunk += delta
-                    yield delta
+                delta = choice.get("delta") or {}
+                if delta.get("content"):
+                    t = str(delta["content"])
+                    chunk_parts.append(t)
+                    yield t
+                for tc in (delta.get("tool_calls") or []):
+                    _accumulate_tool_call(tool_call_acc, tc)
                 fr = choice.get("finish_reason")
                 if fr:
                     finish = fr
-            if finish != "length":
-                break
-            if continuation_idx >= _MAX_CONTINUATIONS:
-                yield "\n\n[Réponse tronquée]"
-                break
-            messages.append({"role": "assistant", "content": chunk})
-            messages.append({"role": "user", "content": "Continue."})
+
+            chunk = "".join(chunk_parts).strip()
+
+            if finish == "tool_calls":
+                _apply_tool_calls(messages, tool_call_acc)
+                continue
+
+            if finish == "length" and chunk:
+                if iteration >= _MAX_CONTINUATIONS:
+                    yield "\n\n[Réponse tronquée]"
+                    break
+                messages.append({"role": "assistant", "content": chunk})
+                messages.append({"role": "user", "content": "Continue."})
+                continue
+
+            break
+
     except requests.exceptions.HTTPError as exc:
         r_ref = exc.response
         code = r_ref.status_code if r_ref is not None else "?"
@@ -878,7 +961,6 @@ Si l'utilisateur demande une opinion d'investissement, rappelle en une phrase qu
     except Exception as e:
         yield f"[ERREUR] {e}"
 
-    # Sentinel final avec les vrais compteurs de tokens
     yield {"__usage__": usage_total}
 
 
