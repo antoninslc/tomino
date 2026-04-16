@@ -120,6 +120,7 @@ const ICONS = {
 const ACTIFS_ITEMS = [
   { to: '/portefeuille/PEA', label: 'PEA' },
   { to: '/portefeuille/CTO', label: 'CTO' },
+  { to: '/crypto', label: 'Crypto' },
   { to: '/portefeuille/OR', label: 'Or' },
   { to: '/assurance-vie', label: 'Assurance vie' },
   { to: '/livrets', label: 'Livrets' },

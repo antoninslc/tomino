@@ -57,6 +57,12 @@ const HISTORY_METRICS = {
     read: (h) => h?.valeur_or,
     readInvestie: (h) => h?.valeur_or_investie ?? null,
   },
+  valeur_crypto: {
+    label: 'Crypto',
+    color: '#f7931a',
+    read: (h) => h?.valeur_crypto ?? null,
+    readInvestie: null,
+  },
   valeur_livrets: {
     label: 'Livrets',
     color: '#adb7c7',

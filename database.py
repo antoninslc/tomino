@@ -38,7 +38,7 @@ DEFAULT_PROFIL = {
     "is_demo": 0,
 }
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 SCHEMA_MIN_IMPORT_VERSION = 1
 
 _SYNC_ACTOR = threading.local()
@@ -534,6 +534,10 @@ def init_db():
             c.execute(f"ALTER TABLE historique ADD COLUMN {col} REAL")
         except Exception:
             pass
+    try:
+        c.execute("ALTER TABLE historique ADD COLUMN valeur_crypto REAL")
+    except Exception:
+        pass
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS analyses (
@@ -1990,22 +1994,23 @@ def save_snapshot(valeurs: dict, snapshot_date=None):
         "livrets": float(valeurs.get("livrets") or 0),
         "assurance_vie": float(valeurs.get("assurance_vie") or 0),
         "investie": float(valeurs.get("investie") or 0),
+        "crypto": float(valeurs.get("crypto") or 0),
     }
     existing = conn.execute("SELECT id FROM historique WHERE date = ?", (date_value,)).fetchone()
     if existing:
         conn.execute("""
             UPDATE historique SET valeur_totale=:totale, valeur_pea=:pea, valeur_cto=:cto,
             valeur_or=:or_, valeur_livrets=:livrets, valeur_assurance_vie=:assurance_vie,
-            valeur_investie=:investie
+            valeur_investie=:investie, valeur_crypto=:crypto
             WHERE date=:date
         """, payload)
     else:
         conn.execute("""
             INSERT INTO historique (
                 date, valeur_totale, valeur_pea, valeur_cto, valeur_or,
-                valeur_livrets, valeur_assurance_vie, valeur_investie
+                valeur_livrets, valeur_assurance_vie, valeur_investie, valeur_crypto
             )
-            VALUES (:date, :totale, :pea, :cto, :or_, :livrets, :assurance_vie, :investie)
+            VALUES (:date, :totale, :pea, :cto, :or_, :livrets, :assurance_vie, :investie, :crypto)
         """, payload)
     conn.commit()
     conn.close()

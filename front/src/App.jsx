@@ -19,6 +19,7 @@ import Settings from './pages/Settings'
 import Notifications from './pages/Notifications'
 import Rapport from './pages/Rapport'
 import StockAnalyse from './pages/StockAnalyse'
+import Crypto from './pages/Crypto'
 import Onboarding from './pages/Onboarding'
 import Welcome from './pages/Welcome'
 import MentionsLegales from './pages/MentionsLegales'
@@ -335,6 +336,7 @@ export default function App() {
             <Route path="/actifs/modifier/:id" element={<ActifForm />} />
             <Route path="/repartition" element={<Navigate to="/repartition/PEA" />} />
             <Route path="/repartition/:env" element={<Repartition />} />
+            <Route path="/crypto" element={<Crypto />} />
             <Route path="/livrets" element={<Livrets />} />
             <Route path="/assurance-vie" element={<AssuranceVie />} />
             <Route path="/dividendes" element={<Dividendes />} />

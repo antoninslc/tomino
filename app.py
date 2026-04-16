@@ -10,6 +10,7 @@ from flask import Flask, request, jsonify, Response, stream_with_context, g
 from flask_cors import CORS
 import database as db
 import prices
+import crypto as crypto_api
 import grok
 import calculs
 import emails
@@ -137,6 +138,7 @@ def _do_snapshot():
         "livrets": resume["livrets"]["valeur_actuelle"],
         "assurance_vie": resume["assurance_vie"]["valeur_actuelle"],
         "investie": resume.get("total_investi", 0),
+        "crypto": resume["crypto"]["valeur_actuelle"],
     }, snapshot_date=_paris_now().date().isoformat())
 
 
@@ -1952,6 +1954,7 @@ def calcul_resume(force: bool = False):
     pea_raw = db.get_actifs("PEA")
     cto_raw = db.get_actifs("CTO")
     or_raw = db.get_actifs("OR")
+    crypto_raw = db.get_actifs("CRYPTO")
     livrets = db.get_livrets()
     assurance_vie = db.get_assurance_vie()
 
@@ -1964,11 +1967,14 @@ def calcul_resume(force: bool = False):
     stats_cto = prices.calcul_stats_enveloppe(cto)
     stats_or = prices.calcul_stats_enveloppe(or_)
 
+    crypto_enrichis = crypto_api.enrichir_crypto_actifs(crypto_raw)
+    stats_crypto = crypto_api.calcul_stats_crypto(crypto_enrichis)
+
     val_livrets = sum(l.get("capital") or 0 for l in livrets)
     val_assurance_vie = sum(_to_float(c.get("valeur_actuelle"), 0) for c in assurance_vie)
     inv_assurance_vie = sum(_to_float(c.get("versements"), 0) for c in assurance_vie)
-    total = stats_pea["valeur_actuelle"] + stats_cto["valeur_actuelle"] + stats_or["valeur_actuelle"] + val_livrets + val_assurance_vie
-    total_investi = stats_pea["valeur_investie"] + stats_cto["valeur_investie"] + stats_or["valeur_investie"] + val_livrets + inv_assurance_vie
+    total = stats_pea["valeur_actuelle"] + stats_cto["valeur_actuelle"] + stats_or["valeur_actuelle"] + val_livrets + val_assurance_vie + stats_crypto["valeur_actuelle"]
+    total_investi = stats_pea["valeur_investie"] + stats_cto["valeur_investie"] + stats_or["valeur_investie"] + val_livrets + inv_assurance_vie + stats_crypto["valeur_investie"]
     pv_total = total - total_investi
 
     def pct(v):
@@ -1990,6 +1996,7 @@ def calcul_resume(force: bool = False):
             "pct": pct(val_assurance_vie),
             "nb": len(assurance_vie),
         },
+        "crypto": {**stats_crypto, "pct": pct(stats_crypto["valeur_actuelle"])},
     }
 
     with _RESUME_CACHE_LOCK:
@@ -4962,6 +4969,151 @@ def json_sqlite_operational_error(error):
         "action": "Redémarrez Tomino puis réessayez. Si le problème persiste, restaurez une sauvegarde récente.",
     }), 500
 
+
+
+# ── Crypto ────────────────────────────────────────────────────────────────────
+
+@app.route("/api/crypto/search")
+def api_crypto_search():
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify([])
+    results = crypto_api.search_coins(q)
+    return jsonify(results)
+
+
+@app.route("/api/crypto/actifs")
+def api_crypto_actifs():
+    actifs_bruts = db.get_actifs("CRYPTO")
+    actifs = crypto_api.enrichir_crypto_actifs(actifs_bruts)
+    mouvements_raw = db.get_mouvements(enveloppe="CRYPTO", limit=500)
+    index_nom = {int(a.get("id")): a.get("nom", "") for a in actifs if a.get("id") is not None}
+    mouvements = []
+    for m in mouvements_raw:
+        aid = int(m.get("actif_id")) if m.get("actif_id") is not None else None
+        if aid not in index_nom:
+            continue
+        m["actif_nom"] = index_nom.get(aid, "")
+        mouvements.append(m)
+    stats = crypto_api.calcul_stats_crypto(actifs)
+    return jsonify({"ok": True, "actifs": actifs, "mouvements": mouvements, "stats": stats})
+
+
+@app.route("/api/crypto/actifs", methods=["POST"])
+def api_crypto_actifs_create():
+    payload = request.get_json(silent=True) or {}
+    nom = str(payload.get("nom") or "").strip()
+    ticker = str(payload.get("ticker") or "").strip().lower()  # CoinGecko ID — lowercase
+    symbol = str(payload.get("symbol") or "").strip().upper()
+    qty = _to_float(payload.get("quantite"), 0)
+    pru = _to_float(payload.get("pru"), 0)
+    date_op = str(payload.get("date_achat") or datetime.date.today().isoformat()).strip()
+    notes = str(payload.get("notes") or "").strip()
+
+    if not nom or not ticker:
+        return jsonify({"ok": False, "erreur": "Nom et coin_id obligatoires."}), 400
+
+    montant_brut = round(qty * pru, 4)
+    existant = db.get_actif_by_ticker(ticker, "CRYPTO") if ticker else None
+
+    if existant:
+        # Merge — recalculate PRU
+        old_qty = _to_float(existant.get("quantite"), 0)
+        old_pru = _to_float(existant.get("pru"), 0)
+        total_qty = old_qty + qty
+        new_pru = round((old_qty * old_pru + qty * pru) / total_qty, 6) if total_qty > 0 else pru
+        db.update_actif(existant["id"], {"quantite": total_qty, "pru": new_pru})
+        actif_id = existant["id"]
+    else:
+        actif_id = db.add_actif({
+            "enveloppe": "CRYPTO",
+            "nom": nom,
+            "ticker": ticker,
+            "quantite": qty,
+            "pru": pru,
+            "type": "crypto",
+            "categorie": symbol,  # Reuse categorie field to store symbol (BTC, ETH…)
+            "date_achat": date_op,
+            "notes": notes,
+        })
+
+    db.add_mouvement({
+        "actif_id": actif_id,
+        "enveloppe": "CRYPTO",
+        "type_operation": "achat",
+        "date_operation": date_op,
+        "quantite": qty,
+        "prix_unitaire": pru,
+        "frais": 0,
+        "montant_brut": montant_brut,
+        "montant_net": montant_brut,
+        "pv_realisee": None,
+        "pru_at_sale": None,
+    })
+
+    calcul_resume(force=True)
+    return jsonify({"ok": True, "actif_id": actif_id})
+
+
+@app.route("/api/crypto/actifs/<int:actif_id>/operation", methods=["POST"])
+def api_crypto_operation(actif_id):
+    payload = request.get_json(silent=True) or {}
+    actif = db.get_actif(actif_id)
+    if not actif or actif.get("enveloppe") != "CRYPTO":
+        return jsonify({"ok": False, "erreur": "Actif crypto introuvable."}), 404
+
+    type_op = str(payload.get("type_operation") or "achat").lower()
+    qty = _to_float(payload.get("quantite"), 0)
+    prix = _to_float(payload.get("prix_unitaire"), 0)
+    frais = _to_float(payload.get("frais"), 0)
+    date_op = str(payload.get("date_operation") or datetime.date.today().isoformat()).strip()
+
+    if qty <= 0 or prix < 0:
+        return jsonify({"ok": False, "erreur": "Quantite et prix invalides."}), 400
+
+    montant_brut = round(qty * prix, 4)
+    montant_net = round(montant_brut + frais, 4)
+    pv_realisee = None
+    pru_at_sale = None
+    pru_actuel = _to_float(actif.get("pru"), 0)
+    qty_actuelle = _to_float(actif.get("quantite"), 0)
+
+    if type_op == "vente":
+        pru_at_sale = round(pru_actuel, 6)
+        pv_realisee = round((prix - pru_actuel) * qty - frais, 4)
+        new_qty = max(0, qty_actuelle - qty)
+        db.update_actif(actif_id, {"quantite": round(new_qty, 8)})
+    else:
+        total_qty = qty_actuelle + qty
+        new_pru = round((qty_actuelle * pru_actuel + qty * prix) / total_qty, 6) if total_qty > 0 else prix
+        db.update_actif(actif_id, {"quantite": round(total_qty, 8), "pru": new_pru})
+
+    db.add_mouvement({
+        "actif_id": actif_id,
+        "enveloppe": "CRYPTO",
+        "type_operation": type_op,
+        "date_operation": date_op,
+        "quantite": qty,
+        "prix_unitaire": prix,
+        "frais": frais,
+        "montant_brut": montant_brut,
+        "montant_net": montant_net,
+        "pv_realisee": pv_realisee,
+        "pru_at_sale": pru_at_sale,
+    })
+
+    calcul_resume(force=True)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/crypto/actifs/<int:actif_id>", methods=["DELETE"])
+def api_crypto_actifs_delete(actif_id):
+    actif = db.get_actif(actif_id)
+    if not actif or actif.get("enveloppe") != "CRYPTO":
+        return jsonify({"ok": False, "erreur": "Actif crypto introuvable."}), 404
+    db.delete_actif(actif_id)
+    calcul_resume(force=True)
+    return jsonify({"ok": True})
 
 
 if SERVE_FRONTEND:
