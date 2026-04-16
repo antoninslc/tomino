@@ -352,11 +352,12 @@ function _lsSave(patch) {
 
 const _lsInit = _lsLoad()
 const _store = {
-  data:           _lsInit.data           ?? null,
-  chatMessages:   [],
-  currentTicker:  _lsInit.currentTicker  ?? '',
-  history:        _lsInit.history        ?? null,
-  memosCache:     _lsInit.memosCache     ?? {},
+  data:            _lsInit.data            ?? null,
+  chatMessages:    [],
+  chatsByTicker:   _lsInit.chatsByTicker   ?? {},
+  currentTicker:   _lsInit.currentTicker   ?? '',
+  history:         _lsInit.history         ?? null,
+  memosCache:      _lsInit.memosCache      ?? {},
 }
 
 // ── Formatters ─────────────────────────────────────────────
@@ -703,8 +704,8 @@ function TargetRange({ bas, moyen, haut, cours }) {
 
 // ── Hook chat streamé ──────────────────────────────────────
 
-function useStreamingChat() {
-  const [messages, setMessages] = useState(() => _store.chatMessages)
+function useStreamingChat(ticker) {
+  const [messages, setMessages] = useState(() => _store.chatsByTicker[ticker] ?? [])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
@@ -712,9 +713,22 @@ function useStreamingChat() {
   const bottomRef = useRef(null)
   const convIdRef = useRef(crypto.randomUUID())
 
+  // Charger les messages du ticker quand il change
+  useEffect(() => {
+    const saved = _store.chatsByTicker[ticker] ?? []
+    setMessages(saved)
+    _store.chatMessages = saved
+    convIdRef.current = crypto.randomUUID()
+  }, [ticker])
+
+  // Persister dans _store et localStorage à chaque changement de messages
   useEffect(() => {
     _store.chatMessages = messages
-  }, [messages])
+    if (ticker) {
+      _store.chatsByTicker[ticker] = messages
+      _lsSave({ chatsByTicker: _store.chatsByTicker })
+    }
+  }, [messages, ticker])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -789,13 +803,22 @@ function useStreamingChat() {
     }
   }
 
-  return { messages, input, setInput, sending, send, error, bottomRef }
+  function clearChat() {
+    setMessages([])
+    if (ticker) {
+      _store.chatsByTicker[ticker] = []
+      _lsSave({ chatsByTicker: _store.chatsByTicker })
+    }
+    convIdRef.current = crypto.randomUUID()
+  }
+
+  return { messages, input, setInput, sending, send, error, bottomRef, clearChat }
 }
 
 // ── Composant FloatingChat ─────────────────────────────────
 
-function FloatingChat({ stockData, historyData, investmentScore, open, onToggle }) {
-  const { messages, input, setInput, sending, send, error, bottomRef } = useStreamingChat()
+function FloatingChat({ stockData, historyData, investmentScore, open, onToggle, ticker }) {
+  const { messages, input, setInput, sending, send, error, bottomRef, clearChat } = useStreamingChat(ticker)
 
   function onKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(stockData, historyData, investmentScore) }
@@ -842,9 +865,25 @@ function FloatingChat({ stockData, historyData, investmentScore, open, onToggle 
         <div style={{
           padding: '10px 16px', flexShrink: 0,
           borderBottom: '1px solid rgba(255,255,255,0.07)',
-          fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          Discussion avec Grok &mdash; {stockData?.nom_court || stockData?.ticker}
+          <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>
+            Discussion avec Grok &mdash; {stockData?.nom_court || stockData?.ticker}
+          </span>
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={clearChat}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px',
+                       color: 'var(--text-3)', fontSize: '.7rem', fontFamily: 'var(--mono)',
+                       opacity: 0.6, transition: 'opacity .15s' }}
+              onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+              onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+              title="Effacer la conversation"
+            >
+              effacer
+            </button>
+          )}
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1937,7 +1976,6 @@ export default function StockAnalyse() {
     setSuggestions([])
     const isNewTicker = t !== _store.currentTicker
     if (isNewTicker) {
-      _store.chatMessages = []
       _store.currentTicker = t
       _lsSave({ currentTicker: t, data: null, history: null })
     }
@@ -2374,7 +2412,7 @@ export default function StockAnalyse() {
         </>
       )}
 
-      {d && <FloatingChat stockData={d} historyData={history} investmentScore={scoreForChat} open={chatOpen} onToggle={() => setChatOpen(v => !v)} />}
+      {d && <FloatingChat stockData={d} historyData={history} investmentScore={scoreForChat} open={chatOpen} onToggle={() => setChatOpen(v => !v)} ticker={ticker} />}
     </section>
   )
 }

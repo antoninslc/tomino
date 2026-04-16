@@ -27,8 +27,8 @@ _MAX_TOKENS_PAR_TIER = {
     "tomino_plus": 1200,
 }
 _CHAT_MAX_TOKENS_PAR_TIER = {
-    "free":        400,
-    "tomino_plus": 1000,
+    "free":        300,
+    "tomino_plus": 500,
 }
 
 # Nombre de messages chat conservés par tier
@@ -794,7 +794,8 @@ CONTRÔLE DE COHÉRENCE (valeurs aberrantes)
 
 Si des valeurs semblent aberrantes, explicite pourquoi, propose une interprétation prudente et une correction plausible (ou une plage plausible), sans inventer des certitudes.
 
-Réponds aux questions sur cette action. Si l'utilisateur demande une opinion d'investissement, rappelle toujours que tu n'es pas conseiller financier et que c'est sa décision finale.
+Règle de réponse : sois bref et direct, comme dans un message à un collègue. 2 à 4 phrases maximum par défaut — sauf si l'utilisateur dit explicitement "développe" ou "explique en détail". Pas d'introduction, pas de reformulation de la question. Va droit au fait.
+Si l'utilisateur demande une opinion d'investissement, rappelle en une phrase que tu n'es pas conseiller financier.
 """
 
     messages = [{"role": "system", "content": context}]
@@ -934,17 +935,22 @@ def generer_memo_action(stock_data: dict, history_data: dict | None = None) -> t
             f"{y}: {_fmt(v)}" for y, v in zip(yrs, history_data.get("fcf", [])) if v is not None))
 
     system_prompt = (
-        "Tu es un analyste financier qui donne un avis rapide et direct, comme à un collègue.\n"
-        "Ton style : phrases courtes, pas de jargon inutile, pas d'introduction, pas de conclusion creuse.\n"
+        "Tu es un analyste financier senior. Tu rédiges des mémos d'investissement denses, nuancés et utiles.\n"
         "Tu ne donnes jamais de conseil d'achat ou de vente.\n"
-        "Si une donnée semble aberrante (rendement >15%, Z-score >30...), signale-le en une phrase.\n\n"
-        "Format Markdown, exactement 3 blocs :\n\n"
-        "## Ce qui plait\n"
-        "2 points forts réels, expliqués en 1-2 phrases chacun. Ancre-les dans les chiffres.\n\n"
-        "## Ce qui inquiète\n"
-        "2 points faibles ou risques concrets, expliqués en 1-2 phrases chacun.\n\n"
-        "## En deux mots\n"
-        "1 à 3 phrases max. Le vrai débat sur ce titre — ce qui fait que les bulls et les bears ne sont pas d'accord. "
+        "Sois direct, sans introduction ni conclusion générique.\n\n"
+        "Règles impératives :\n"
+        "- Chaque argument doit expliquer le POURQUOI, pas juste citer un chiffre. "
+        "Exemple interdit : 'ROE 35%'. Exemple correct : 'ROE 35% reflète un avantage compétitif structurel sur la distribution, peu capitalistique par nature.'\n"
+        "- Si une donnée semble incohérente ou hors-norme (rendement dividende >15%, Altman Z >30, P/E négatif sur une entreprise profitable...), "
+        "signale-la explicitement plutôt que de l'utiliser comme argument.\n"
+        "- Les risques et catalyseurs doivent être spécifiques à l'entreprise et au secteur, pas génériques ('risque macro', 'hausse des taux').\n"
+        "- Le verdict doit identifier le principal point de tension entre haussiers et baissiers, pas une synthèse molle.\n\n"
+        "Produis un mémo en Markdown avec exactement ces 5 sections :\n"
+        "## Thèse haussière\n3 arguments, chacun ancré dans les données ET expliqué (moat, position concurrentielle, tendance structurelle).\n"
+        "## Thèse baissière\n3 arguments, chacun ancré dans les données ET expliqué (pourquoi c'est un vrai risque, pas juste un chiffre élevé).\n"
+        "## Risques clés\n2-3 risques spécifiques à cette entreprise/secteur, avec leur mécanisme de transmission au cours.\n"
+        "## Catalyseurs potentiels\n2-3 éléments concrets et datables qui pourraient débloquer ou détruire de la valeur.\n"
+        "## Verdict\n1-2 phrases qui nomment le principal désaccord entre bulls et bears sur ce titre. "
         "Terminer par : *Analyse factuelle — pas un conseil financier.*"
     )
 
@@ -958,7 +964,7 @@ def generer_memo_action(stock_data: dict, history_data: dict | None = None) -> t
         r = requests.post(
             _API_URL,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": _MODEL, "messages": messages, "temperature": 0.4, "max_tokens": 450},
+            json={"model": _MODEL, "messages": messages, "temperature": 0.3, "max_tokens": 1100},
             timeout=60,
         )
         r.raise_for_status()
