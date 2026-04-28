@@ -4578,6 +4578,36 @@ def api_stock_fundamentals(ticker):
     return jsonify({"ok": True, **data})
 
 
+
+
+@app.route("/api/stock/dividendes-historique/<ticker>")
+def api_stock_dividendes_historique(ticker):
+    ticker = str(ticker).strip().upper()
+    if not ticker:
+        return jsonify({"ok": False, "erreur": "Ticker manquant"}), 400
+    divs = prices.get_historique_dividendes(ticker, limit=5)
+    return jsonify({"ok": True, "dividendes": divs, "ticker": ticker})
+
+
+@app.route("/api/evenements/prochains", methods=["POST"])
+def api_evenements_prochains():
+    payload = request.get_json(silent=True) or {}
+    items = payload.get("items")
+
+    if items is None:
+        single_ticker = str(payload.get("ticker") or "").strip().upper()
+        if single_ticker:
+            items = [{
+                "ticker": single_ticker,
+                "nom": str(payload.get("nom") or single_ticker).strip() or single_ticker,
+                "quantite": payload.get("quantite", 0),
+            }]
+
+    if not isinstance(items, list):
+        return jsonify({"ok": False, "erreur": "Champ 'items' requis (liste)."}), 400
+
+    evenements = prices.get_evenements_prochains(items)
+    return jsonify({"ok": True, "count": len(evenements), "events": evenements})
 @app.route("/api/stock/chat/stream", methods=["POST"])
 def api_stock_chat_stream():
     payload = request.get_json(silent=True) or {}

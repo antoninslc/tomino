@@ -905,6 +905,66 @@ def import_dividendes_auto() -> int:
 
     return nouveaux
 
+def get_historique_dividendes(ticker: str, limit: int = 5) -> list:
+    """
+    Récupère l'historique des dividendes versés par une entreprise depuis Yahoo Finance v8.
+    Retourne une liste de dicts {date, montant_par_action} triée par date décroissante.
+    """
+    if not ticker:
+        return []
+    
+    try:
+        # Requête avec events=div pour récupérer les dividendes
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker.upper()}"
+        params = {
+            "interval": "1d",
+            "range": "5y",  # 5 ans d'historique
+            "events": "div",
+            "includePrePost": "false",
+        }
+        
+        r = _get_session().get(url, params=params, timeout=15)
+        if not r.ok:
+            # Fallback sur query2
+            r = _get_session().get(url.replace("query1", "query2"), params=params, timeout=15)
+        
+        if not r.ok:
+            return []
+        
+        data = r.json()
+        result = (data.get("chart") or {}).get("result", [{}])[0]
+        
+        # Les dividendes sont dans events -> dividends
+        events = result.get("events") or {}
+        dividends_raw = events.get("dividends") or {}
+        
+        if not dividends_raw:
+            return []
+        
+        # Convertir {timestamp: {amount}} en liste [{date, montant}]
+        divs = []
+        for ts_str, div_info in dividends_raw.items():
+            try:
+                ts = int(ts_str)
+                date_obj = datetime.utcfromtimestamp(ts)
+                date_str = date_obj.strftime("%Y-%m-%d")
+                amount = _safe_float(div_info.get("amount"))
+                if amount:
+                    divs.append({
+                        "date": date_str,
+                        "montant": round(amount, 4),
+                    })
+            except Exception:
+                continue
+        
+        # Trier par date décroissante et prendre les limit derniers
+        divs.sort(key=lambda x: x["date"], reverse=True)
+        return divs[:limit]
+    
+    except Exception as exc:
+        logger.warning("get_historique_dividendes(%s): erreur (%s)", ticker, exc)
+        return []
+
 
 def get_calendrier_dividendes(ticker_qty_map: dict) -> list:
     """
@@ -953,6 +1013,7 @@ def get_calendrier_dividendes(ticker_qty_map: dict) -> list:
                             "dividende_action": div_action,
                             "quantite": qty,
                             "montant_estime": montant_estime,
+                            "source": "FMP",
                         })
                         found_tickers.add(sym)
         except Exception as e:
@@ -962,18 +1023,9 @@ def get_calendrier_dividendes(ticker_qty_map: dict) -> list:
     missing = [t for t in ticker_qty_map if t.upper() not in found_tickers]
     for ticker in missing:
         try:
-            url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
-            r = _get_session().get(
-                url,
-                params={"modules": "calendarEvents,defaultKeyStatistics,summaryDetail"},
-                timeout=8,
-            )
-            if not r.ok:
+            data0 = _fetch_quote_summary(ticker, ["calendarEvents", "defaultKeyStatistics", "summaryDetail"])
+            if not data0:
                 continue
-            result_list = (r.json().get("quoteSummary") or {}).get("result") or []
-            if not result_list:
-                continue
-            data0 = result_list[0]
             stats = data0.get("defaultKeyStatistics") or {}
             summary = data0.get("summaryDetail") or {}
             cal_div = (data0.get("calendarEvents") or {}).get("dividends") or {}
@@ -1011,12 +1063,199 @@ def get_calendrier_dividendes(ticker_qty_map: dict) -> list:
                 "dividende_action": div_action,
                 "quantite": qty,
                 "montant_estime": montant_estime,
+                "source": "Yahoo",
             })
         except Exception as e:
             logger.debug("get_calendrier_dividendes Yahoo(%s): %s", ticker, e)
 
     results.sort(key=lambda x: x.get("ex_date") or "")
     return results
+
+
+def get_calendrier_resultats(ticker_nom_qty_map: dict) -> list:
+    """
+    Retourne les prochaines publications de résultats pour les tickers fournis.
+    ticker_nom_qty_map: {TICKER: {"nom": str, "quantite": float}}
+    Source primaire : Yahoo Finance quoteSummary.calendarEvents.
+    """
+    import datetime as dt_mod
+
+    if not ticker_nom_qty_map:
+        return []
+
+    today = dt_mod.date.today()
+    end = today + dt_mod.timedelta(days=180)
+    results = []
+    found_tickers = set()
+    api_key = os.getenv("FMP_API_KEY", "")
+
+    if api_key:
+        try:
+            url = "https://financialmodelingprep.com/api/v3/earning_calendar"
+            params = {
+                "from": today.isoformat(),
+                "to": end.isoformat(),
+                "apikey": api_key,
+            }
+            r = _get_session().get(url, params=params, timeout=15)
+            if r.ok:
+                data = r.json()
+                if isinstance(data, list):
+                    tickers_upper = {t.upper() for t in ticker_nom_qty_map}
+                    for item in data:
+                        sym = str(item.get("symbol") or "").upper()
+                        if sym not in tickers_upper:
+                            continue
+                        date_str = str(item.get("date") or "")[:10]
+                        if not date_str:
+                            continue
+                        payload = ticker_nom_qty_map.get(sym) or {}
+                        results.append({
+                            "ticker": sym,
+                            "nom": str(payload.get("nom") or sym).strip() or sym,
+                            "quantite": _safe_float(payload.get("quantite")) or 0,
+                            "type_evenement": "resultats",
+                            "date_evenement": date_str,
+                            "date_secondaire": "",
+                            "eps_estime": _safe_float(item.get("epsEstimated")),
+                            "eps_bas": None,
+                            "eps_haut": None,
+                            "source": "FMP",
+                        })
+                        found_tickers.add(sym)
+        except Exception as e:
+            logger.debug("get_calendrier_resultats FMP: %s", e)
+
+    def _parse_date_candidates(value):
+        candidates = []
+
+        def _push(raw_value):
+            if raw_value is None or raw_value == "":
+                return
+            if isinstance(raw_value, dict):
+                _push(raw_value.get("raw") or raw_value.get("fmt"))
+                return
+            try:
+                ts = int(float(raw_value))
+                candidate = dt_mod.date.fromtimestamp(ts)
+            except Exception:
+                try:
+                    candidate = dt_mod.date.fromisoformat(str(raw_value)[:10])
+                except Exception:
+                    return
+            if candidate not in candidates:
+                candidates.append(candidate)
+
+        if isinstance(value, list):
+            for item in value:
+                _push(item)
+        else:
+            _push(value)
+
+        return candidates
+
+    def _fetch_one(ticker: str, payload: dict) -> dict | None:
+        try:
+            data0 = _fetch_quote_summary(ticker, ["calendarEvents", "defaultKeyStatistics", "summaryDetail"])
+            if not data0:
+                return None
+            cal_events = data0.get("calendarEvents") or {}
+            earnings = cal_events.get("earnings") or {}
+
+            date_candidates = _parse_date_candidates(earnings.get("earningsDate"))
+            if not date_candidates:
+                return None
+
+            date_event = next((d for d in date_candidates if d >= today), date_candidates[0])
+            # Tolérance de 2 jours pour les décalages de timezone/provider.
+            if date_event < today - dt_mod.timedelta(days=2) or date_event > end:
+                return None
+
+            eps_estime = _safe_float((earnings.get("earningsAverage") or {}).get("raw"))
+            eps_bas = _safe_float((earnings.get("earningsLow") or {}).get("raw"))
+            eps_haut = _safe_float((earnings.get("earningsHigh") or {}).get("raw"))
+
+            return {
+                "ticker": str(ticker).upper(),
+                "nom": str((payload or {}).get("nom") or ticker).strip() or str(ticker).upper(),
+                "quantite": _safe_float((payload or {}).get("quantite")) or 0,
+                "type_evenement": "resultats",
+                "date_evenement": date_event.isoformat(),
+                "date_secondaire": date_candidates[1].isoformat() if len(date_candidates) > 1 else "",
+                "eps_estime": eps_estime,
+                "eps_bas": eps_bas,
+                "eps_haut": eps_haut,
+                "source": "Yahoo",
+            }
+        except Exception as e:
+            logger.debug("get_calendrier_resultats(%s): %s", ticker, e)
+            return None
+
+    missing = [(ticker, payload) for ticker, payload in ticker_nom_qty_map.items() if str(ticker).upper() not in found_tickers]
+
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL_FETCH, max(1, len(missing)))) as executor:
+        futures = [executor.submit(_fetch_one, ticker, payload) for ticker, payload in missing]
+        for future in as_completed(futures):
+            event = future.result()
+            if event:
+                results.append(event)
+
+    results.sort(key=lambda x: x.get("date_evenement") or "")
+    return results
+
+
+def get_evenements_prochains(items: list[dict]) -> list:
+    """
+    Fusionne les prochains dividendes et résultats pour une liste d'items.
+    Chaque item peut contenir ticker, nom et quantite.
+    """
+    if not items:
+        return []
+
+    ticker_qty_map = {}
+    ticker_qty_map_for_dividends = {}
+    ticker_payload_map = {}
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        ticker = str(item.get("ticker") or "").strip().upper()
+        if not ticker:
+            continue
+        quantite = _safe_float(item.get("quantite")) or 0
+        ticker_qty_map[ticker] = max(ticker_qty_map.get(ticker, 0), quantite)
+        if quantite > 0:
+            ticker_qty_map_for_dividends[ticker] = max(ticker_qty_map_for_dividends.get(ticker, 0), quantite)
+        ticker_payload_map[ticker] = {
+            "nom": str(item.get("nom") or ticker).strip() or ticker,
+            "quantite": ticker_qty_map[ticker],
+        }
+
+    if not ticker_qty_map:
+        return []
+
+    evenements = []
+
+    # Priorité aux résultats: visibles même sans position ouverte (favoris/analyse).
+    evenements.extend(get_calendrier_resultats(ticker_payload_map))
+
+    # Les dividendes n'ont de sens que pour des lignes effectivement détenues.
+    for div in get_calendrier_dividendes(ticker_qty_map_for_dividends):
+        payload = ticker_payload_map.get(div.get("ticker") or "", {})
+        evenements.append({
+            "ticker": str(div.get("ticker") or "").upper(),
+            "nom": str(payload.get("nom") or div.get("ticker") or "").strip() or str(div.get("ticker") or "").upper(),
+            "quantite": _safe_float(payload.get("quantite")) or 0,
+            "type_evenement": "dividendes",
+            "date_evenement": str(div.get("ex_date") or ""),
+            "date_secondaire": str(div.get("payment_date") or ""),
+            "record_date": str(div.get("record_date") or ""),
+            "dividende_action": _safe_float(div.get("dividende_action")),
+            "montant_estime": _safe_float(div.get("montant_estime")),
+            "source": str(div.get("source") or ""),
+        })
+    evenements.sort(key=lambda x: (x.get("date_evenement") or "", x.get("type_evenement") or ""))
+    return evenements
 
 
 # ── STOCK PICKING ──────────────────────────────────────────
@@ -1264,6 +1503,13 @@ _crumb_value: str = ""
 _crumb_ts: float = 0.0
 _crumb_lock = threading.Lock()
 
+
+def _reset_crumb() -> None:
+    global _crumb_value, _crumb_ts
+    with _crumb_lock:
+        _crumb_value = ""
+        _crumb_ts = 0.0
+
 def _get_crumb() -> str:
     global _crumb_value, _crumb_ts
     now = time.time()
@@ -1298,20 +1544,34 @@ def _fetch_quote_summary(ticker: str, modules: list) -> dict:
     """Appelle quoteSummary pour un ensemble de modules. Retourne le bloc result[0] ou {}."""
     crumb = _get_crumb()
     for host in ("query2", "query1"):
-        try:
-            url = f"https://{host}.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
-            params = {"modules": ",".join(modules)}
-            if crumb:
-                params["crumb"] = crumb
-            r = _get_session().get(url, params=params, timeout=12)
-            if not r.ok:
-                logger.debug("_fetch_quote_summary %s %s: HTTP %s", host, ticker, r.status_code)
-                continue
-            results = r.json().get("quoteSummary", {}).get("result") or []
-            if results:
-                return results[0]
-        except Exception as e:
-            logger.debug("_fetch_quote_summary %s %s: %s", host, ticker, e)
+        url = f"https://{host}.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
+        for use_crumb in (True, False):
+            try:
+                params = {"modules": ",".join(modules)}
+                if use_crumb and crumb:
+                    params["crumb"] = crumb
+                r = _get_session().get(url, params=params, timeout=12)
+
+                if not r.ok:
+                    logger.debug("_fetch_quote_summary %s %s: HTTP %s", host, ticker, r.status_code)
+                    if use_crumb and crumb and r.status_code in (401, 403):
+                        _reset_crumb()
+                        crumb = ""
+                        continue
+                    continue
+
+                payload = r.json()
+                results = payload.get("quoteSummary", {}).get("result") or []
+                if results:
+                    return results[0]
+
+                finance_error = ((payload.get("finance") or {}).get("error") or {}).get("code")
+                if use_crumb and crumb and str(finance_error or "").lower() == "unauthorized":
+                    _reset_crumb()
+                    crumb = ""
+                    continue
+            except Exception as e:
+                logger.debug("_fetch_quote_summary %s %s: %s", host, ticker, e)
     return {}
 
 
@@ -1480,7 +1740,7 @@ def get_stock_fundamentals(ticker: str, force: bool = False) -> dict:
             "price_fcf": price_fcf,
             "fcf_ttm": fcf_ttm,
             "fcf_par_action": fcf_par_action,
-            "rendement_div": _safe_float(info.get("dividendYield")),
+            "rendement_div": _safe_float(info.get("dividendYield")) / 100 if _safe_float(info.get("dividendYield")) else None,  # Yahoo retourne en %, passer en décimal
             "taux_distribution": _safe_float(info.get("payoutRatio")),
             "dividende_par_action": _safe_float(info.get("dividendRate")),
             "marge_brute": _safe_float(info.get("grossMargins")),
@@ -1680,6 +1940,33 @@ def get_stock_history(ticker: str) -> dict:
             except Exception:
                 pe_l.append(None)
 
+        earnings_surprise = []
+        try:
+            ed = t.earnings_dates
+            if ed is not None and not ed.empty:
+                for idx, row in ed.iterrows():
+                    dt_str = idx.strftime("%Y-%m-%d")
+                    eps_est = _safe_float(row.get("EPS Estimate"))
+                    eps_act = _safe_float(row.get("Reported EPS"))
+                    if eps_est is not None or eps_act is not None:
+                        earnings_surprise.append({
+                            "date": dt_str,
+                            "eps_estimate": eps_est,
+                            "eps_actual": eps_act
+                        })
+                
+                earnings_surprise.sort(key=lambda x: x["date"])
+                
+                past_quarters = [q for q in earnings_surprise if q["eps_actual"] is not None]
+                future_quarters = [q for q in earnings_surprise if q["eps_actual"] is None and q["eps_estimate"] is not None]
+                
+                past_quarters = past_quarters[-4:]
+                next_quarter = future_quarters[0:1]
+                
+                earnings_surprise = past_quarters + next_quarter
+        except Exception as exc:
+            pass
+
         result = {
             "annees": annees,
             "ca": ca_l,
@@ -1692,6 +1979,7 @@ def get_stock_history(ticker: str) -> dict:
             "marge_operationnelle": mo_l,
             "marge_brute": mb_l,
             "pe": pe_l,
+            "earnings_surprise": earnings_surprise,
         }
 
         with _cache_lock:

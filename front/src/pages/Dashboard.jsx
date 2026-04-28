@@ -11,6 +11,17 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import UpcomingEventsPanel from '../components/UpcomingEventsPanel'
+
+function readStockFavorites() {
+  try {
+    const raw = localStorage.getItem('tomino_stock_favorites') || '[]'
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
 const HISTORY_METRICS = {
   valeur_totale: {
@@ -350,7 +361,7 @@ function AllocationDonut({ parts }) {
     .join(', ')
 
   return (
-    <div className="flex items-center gap-6">
+    <div className="flex flex-col items-center gap-6 lg:flex-row">
       <div className="relative grid place-items-center">
         <div
           className="absolute -inset-4 rounded-full opacity-65"
@@ -406,6 +417,7 @@ export default function Dashboard() {
   const [resume, setResume] = useState(null)
   const [historique, setHistorique] = useState([])
   const [actifsRecents, setActifsRecents] = useState([])
+  const [upcomingEvents, setUpcomingEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedHistoryMetric, setSelectedHistoryMetric] = useState('valeur_totale')
@@ -432,7 +444,40 @@ export default function Dashboard() {
         setResume(resumeData)
         setHistorique(Array.isArray(histData) ? histData : [])
         const all = Array.isArray(actifsData?.actifs) ? actifsData.actifs : []
+
+        const actifsByTicker = new Map()
+        for (const actif of all) {
+          const ticker = String(actif?.ticker || '').trim().toUpperCase()
+          if (!ticker) continue
+          actifsByTicker.set(ticker, {
+            ticker,
+            nom: actif?.nom || ticker,
+            quantite: Number(actif?.quantite || 0),
+          })
+        }
+
+        for (const fav of readStockFavorites()) {
+          const ticker = String(fav?.ticker || '').trim().toUpperCase()
+          if (!ticker) continue
+          const current = actifsByTicker.get(ticker)
+          actifsByTicker.set(ticker, {
+            ticker,
+            nom: current?.nom || fav?.nom || ticker,
+            quantite: Number(current?.quantite || 0),
+          })
+        }
+
         setActifsRecents([...all].sort((a, b) => Number(b.id || 0) - Number(a.id || 0)).slice(0, 8))
+
+        try {
+          const eventsRes = await api.post('/evenements/prochains', {
+            items: [...actifsByTicker.values()],
+          })
+          if (!mounted) return
+          setUpcomingEvents(Array.isArray(eventsRes?.events) ? eventsRes.events : [])
+        } catch {
+          if (mounted) setUpcomingEvents([])
+        }
       } catch (e) {
         if (!mounted) return
         const isNetworkError = e?.message?.toLowerCase().includes('fetch') || e?.message?.toLowerCase().includes('network')
@@ -638,9 +683,19 @@ export default function Dashboard() {
             ))}
           </div>
 
-          <div className="card fade-up-2" style={{ marginBottom: 24 }}>
-            <div className="card-label" style={{ marginBottom: 16 }}>Allocation</div>
-            <AllocationDonut parts={allocParts} />
+          <div className="grid gap-4 lg:grid-cols-2 fade-up-2" style={{ marginBottom: 24 }}>
+            <div className="card h-full">
+              <div className="card-label" style={{ marginBottom: 16 }}>Allocation</div>
+              <AllocationDonut parts={allocParts} />
+            </div>
+            <UpcomingEventsPanel
+              title="Prochains événements"
+              subtitle="Entreprises du portefeuille et favoris d’analyse"
+              events={upcomingEvents}
+              emptyText="Aucun événement trouvé pour le portefeuille et les favoris actuels."
+              compact
+              maxHeight={340}
+            />
           </div>
 
           <div className="card fade-up-3" style={{ marginBottom: 24 }}>

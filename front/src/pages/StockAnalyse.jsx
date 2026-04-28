@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, ComposedChart, Line,
-  ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
+  ResponsiveContainer, Tooltip, Tooltip as RTooltip, XAxis, YAxis, Cell, ReferenceLine
 } from 'recharts'
-import { apiBase as BASE } from '../api'
+import { api, apiBase as BASE } from '../api'
+import UpcomingEventsPanel from '../components/UpcomingEventsPanel'
 
 // ── Traductions ────────────────────────────────────────────
 const SECTEUR_FR = {
@@ -314,6 +315,15 @@ const METRIC_INFO = {
     niveaux: [],
     exemple: "Ce mémo est une analyse factuelle automatisée, pas un conseil financier. Il doit être lu en complément d'une analyse personnelle approfondie.",
   },
+  'dcf_usage': {
+    def: "Le modèle DCF (Discounted Cash Flow) estime la valeur intrinsèque de l'action en projetant ses flux de trésorerie futurs et en les actualisant à la valeur d'aujourd'hui.",
+    niveaux: [
+      { label: 'Croissance', color: '#18c37e', desc: "Hypothèse de croissance annuelle des flux (FCF) sur la première phase de projection (ici 7 ans)." },
+      { label: 'WACC', color: '#f6ad55', desc: "Coût du capital. Plus l'entreprise est risquée, plus ce taux doit être élevé. Un WACC élevé diminue la valorisation." },
+      { label: 'Crois. term.', color: '#18c37e', desc: "Croissance perpétuelle après la période de projection. Généralement fixée autour de l'inflation (2 à 3 %)." },
+    ],
+    exemple: "Utilisez les curseurs pour tester vos propres scénarios. La valeur intrinsèque estimée s'ajustera en temps réel. La table de sensibilité vous montre ensuite différentes combinaisons de WACC et de croissance pour encadrer votre marge de sécurité.",
+  },
   'sector_comparison': {
     def: "Compare les ratios clés de l'action avec les médianes indicatives de son secteur. Permet de situer rapidement la valorisation et la rentabilité relative aux pairs sans API externe.",
     niveaux: [
@@ -495,156 +505,211 @@ function buildLiveExample(metricKey, d) {
 
 // ── Composants ─────────────────────────────────────────────
 
-function MetricModal({ label, info, metricKey, stockData, onClose }) {
+function MetricTooltip({ label, info, metricKey, stockData, anchorEl }) {
+  const [style, setStyle] = useState({ opacity: 0 })
+  const tooltipRef = useRef(null)
+
   useEffect(() => {
-    function onKey(e) { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+    if (!anchorEl || !tooltipRef.current) return
+    const rect = anchorEl.getBoundingClientRect()
+    const tooltipRect = tooltipRef.current.getBoundingClientRect()
+    
+    let top = rect.top - tooltipRect.height - 10
+    let left = rect.left + rect.width / 2 - tooltipRect.width / 2
+
+    if (top < 10) {
+      top = rect.bottom + 10
+    }
+    if (left < 10) {
+      left = 10
+    } else if (left + tooltipRect.width > window.innerWidth - 10) {
+      left = window.innerWidth - tooltipRect.width - 10
+    }
+
+    setStyle({
+      position: 'fixed',
+      top,
+      left,
+      opacity: 1,
+      zIndex: 1200,
+      transition: 'opacity 0.1s ease'
+    })
+  }, [anchorEl, info])
 
   return createPortal(
     <div
-      onClick={onClose}
+      ref={tooltipRef}
       style={{
-        position: 'fixed', inset: 0, zIndex: 9000,
-        background: 'rgba(0,0,0,0.72)',
-        backdropFilter: 'blur(6px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '24px',
+        ...style,
+        width: 'max-content', maxWidth: 460,
+        background: 'linear-gradient(180deg, rgba(24,28,34,0.98) 0%, rgba(16,19,24,0.98) 100%)',
+        border: '1px solid var(--line-strong)',
+        borderRadius: 'var(--radius-lg)',
+        boxShadow: '0 12px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)',
+        pointerEvents: 'none',
       }}
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%', maxWidth: 500,
-          background: 'linear-gradient(180deg, rgba(24,28,34,0.98) 0%, rgba(16,19,24,0.98) 100%)',
-          border: '1px solid var(--line-strong)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: '0 40px 80px rgba(0,0,0,0.7)',
-          overflow: 'hidden',
-        }}
-      >
-        {/* En-tete */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '18px 22px 16px',
-          borderBottom: '1px solid var(--line)',
+      <div style={{
+        padding: '14px 18px 12px',
+        borderBottom: '1px solid var(--line)',
+      }}>
+        <span style={{
+          fontFamily: 'var(--mono)', fontSize: '.62rem',
+          color: 'var(--green)', letterSpacing: '.16em', textTransform: 'uppercase',
         }}>
-          <span style={{
-            fontFamily: 'var(--mono)', fontSize: '.62rem',
-            color: 'var(--green)', letterSpacing: '.16em', textTransform: 'uppercase',
-          }}>
-            {label}
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn btn-ghost"
-            style={{ padding: '4px 10px', fontSize: '.75rem', borderRadius: 8 }}
-          >
-            Fermer
-          </button>
+          {label}
+        </span>
+      </div>
+
+      <div style={{ padding: '16px 18px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <div className="card-label" style={{ marginBottom: 8 }}>Definition</div>
+          <p style={{ margin: 0, fontSize: '.82rem', lineHeight: 1.6, color: 'var(--text-2)' }}>
+            {info.def}
+          </p>
         </div>
 
-        <div style={{ padding: '20px 22px 22px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* Definition */}
+        {info.niveaux && info.niveaux.length > 0 && (
           <div>
-            <div className="card-label" style={{ marginBottom: 10 }}>Definition</div>
-            <p style={{ margin: 0, fontSize: '.85rem', lineHeight: 1.75, color: 'var(--text-2)' }}>
-              {info.def}
-            </p>
-          </div>
-
-          {/* Niveaux */}
-          {info.niveaux && info.niveaux.length > 0 && (
-            <div>
-              <div className="card-label" style={{ marginBottom: 12 }}>Comment l&apos;interpreter</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {info.niveaux.map((n) => (
-                  <div key={n.label} style={{
-                    display: 'flex', gap: 14, alignItems: 'baseline',
-                    padding: '10px 14px',
-                    background: 'rgba(255,255,255,0.025)',
-                    borderRadius: 12,
-                    borderLeft: `2px solid ${n.color}`,
+            <div className="card-label" style={{ marginBottom: 10 }}>Comment l&apos;interpreter</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {info.niveaux.map((n) => (
+                <div key={n.label} style={{
+                  display: 'flex', gap: 12, alignItems: 'baseline',
+                  padding: '8px 12px',
+                  background: 'rgba(255,255,255,0.025)',
+                  borderRadius: 8,
+                  borderLeft: `2px solid ${n.color}`,
+                }}>
+                  <span style={{
+                    fontFamily: 'var(--mono)', fontSize: '.65rem', fontWeight: 700,
+                    color: n.color, flexShrink: 0, minWidth: 48,
                   }}>
-                    <span style={{
-                      fontFamily: 'var(--mono)', fontSize: '.68rem', fontWeight: 700,
-                      color: n.color, flexShrink: 0, minWidth: 56,
-                    }}>
-                      {n.label}
-                    </span>
-                    <span style={{ fontSize: '.82rem', lineHeight: 1.6, color: 'var(--text-2)' }}>
-                      {n.desc}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Exemple — dynamique si data dispo, statique sinon */}
-          {(() => {
-            const live = buildLiveExample(metricKey, stockData)
-            const text = live || info.exemple
-            if (!text) return null
-            return (
-              <div style={{
-                padding: '14px 16px',
-                background: live ? 'var(--green-soft)' : 'rgba(255,255,255,0.03)',
-                borderRadius: 12,
-                border: live ? '1px solid rgba(24,195,126,0.18)' : '1px solid var(--line)',
-              }}>
-                <div className="card-label" style={{ marginBottom: 8, color: live ? 'var(--green)' : 'var(--text-3)' }}>
-                  {live ? stockData?.nom_court || stockData?.ticker || 'Exemple' : 'Exemple illustratif'}
+                    {n.label}
+                  </span>
+                  <span style={{ fontSize: '.8rem', lineHeight: 1.5, color: 'var(--text-2)' }}>
+                    {n.desc}
+                  </span>
                 </div>
-                <p style={{ margin: 0, fontSize: '.82rem', lineHeight: 1.7, color: 'var(--text-2)' }}>
-                  {text}
-                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {(() => {
+          const live = buildLiveExample(metricKey, stockData)
+          const text = live || info.exemple
+          if (!text) return null
+          return (
+            <div style={{
+              padding: '12px 14px',
+              background: live ? 'var(--green-soft)' : 'rgba(255,255,255,0.03)',
+              borderRadius: 8,
+              border: live ? '1px solid rgba(24,195,126,0.18)' : '1px solid var(--line)',
+            }}>
+              <div className="card-label" style={{ marginBottom: 6, color: live ? 'var(--green)' : 'var(--text-3)' }}>
+                {live ? stockData?.nom_court || stockData?.ticker || 'Exemple' : 'Exemple illustratif'}
               </div>
-            )
-          })()}
-        </div>
+              <p style={{ margin: 0, fontSize: '.8rem', lineHeight: 1.6, color: 'var(--text-2)' }}>
+                {text}
+              </p>
+            </div>
+          )
+        })()}
       </div>
     </div>,
     document.body
   )
 }
 
+function HoverInfo({ label, infoKey, stockData }) {
+  const [anchorEl, setAnchorEl] = useState(null)
+  const timerRef = useRef(null)
+  const info = METRIC_INFO[infoKey]
+
+  if (!info) return null
+
+  const handleEnter = (e) => {
+    clearTimeout(timerRef.current)
+    setAnchorEl(e.currentTarget)
+  }
+  const handleLeave = () => {
+    timerRef.current = setTimeout(() => {
+      setAnchorEl(null)
+    }, 150)
+  }
+
+  return (
+    <div
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      style={{
+        cursor: 'pointer', color: 'rgba(255,255,255,0.25)',
+        padding: '0 2px', fontSize: '1.05rem', lineHeight: 1,
+        transition: 'color .15s', flexShrink: 0,
+      }}
+      onMouseOver={(e) => { e.currentTarget.style.color = 'var(--green)' }}
+      onMouseOut={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
+    >
+      &#9432;
+      {anchorEl && (
+        <MetricTooltip
+          label={label}
+          info={info}
+          metricKey={infoKey}
+          stockData={stockData}
+          anchorEl={anchorEl}
+        />
+      )}
+    </div>
+  )
+}
+
 function Stat({ label, value, color, infoKey, stockData }) {
-  const [modalOpen, setModalOpen] = useState(false)
+  const [anchorEl, setAnchorEl] = useState(null)
+  const timerRef = useRef(null)
   const info = infoKey ? METRIC_INFO[infoKey] : null
+
+  const handleEnter = (e) => {
+    clearTimeout(timerRef.current)
+    setAnchorEl(e.currentTarget)
+  }
+  const handleLeave = () => {
+    timerRef.current = setTimeout(() => {
+      setAnchorEl(null)
+    }, 150)
+  }
+
   return (
     <div className="stat">
       <div className="stat-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span>{label}</span>
         {info && (
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
+          <div
+            onMouseEnter={handleEnter}
+            onMouseLeave={handleLeave}
             style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'rgba(255,255,255,0.25)',
-              padding: '0 2px', fontSize: '.88rem', lineHeight: 1,
+              cursor: 'pointer', color: 'rgba(255,255,255,0.25)',
+              padding: '0 2px', fontSize: '1.05rem', lineHeight: 1,
               transition: 'color .15s', flexShrink: 0,
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--green)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
+            onMouseOver={(e) => { e.currentTarget.style.color = 'var(--green)' }}
+            onMouseOut={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
           >
             &#9432;
-          </button>
+            {anchorEl && (
+              <MetricTooltip
+                label={label}
+                info={info}
+                metricKey={infoKey}
+                stockData={stockData}
+                anchorEl={anchorEl}
+              />
+            )}
+          </div>
         )}
       </div>
       <div className="stat-value" style={{ color: color || 'var(--text)', fontSize: '1.1rem' }}>{value}</div>
-      {modalOpen && info && (
-        <MetricModal
-          label={label}
-          info={info}
-          metricKey={infoKey}
-          stockData={stockData}
-          onClose={() => setModalOpen(false)}
-        />
-      )}
     </div>
   )
 }
@@ -677,6 +742,149 @@ function RecoBar({ consensus }) {
             </span>
           ) : null
         )}
+      </div>
+    </div>
+  )
+}
+
+function EarningsSurpriseChart({ data, devise }) {
+  if (!data || data.length === 0) return null
+
+  const chartData = data.map(d => {
+    const isFuture = d.eps_actual == null
+    const diff = !isFuture ? (d.eps_actual - d.eps_estimate) : 0
+    const beat = diff >= 0
+
+    const dateObj = new Date(d.date)
+    const month = dateObj.toLocaleString('fr-FR', { month: 'short' })
+    const year = dateObj.getFullYear().toString().slice(-2)
+    const displayDate = `${month.charAt(0).toUpperCase() + month.slice(1)} ${year}`
+
+    return {
+      ...d,
+      displayDate,
+      isFuture,
+      diff,
+      beat,
+      Actual: d.eps_actual,
+      Estimate: d.eps_estimate,
+    }
+  })
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      const pData = payload[0].payload
+      return (
+        <div style={{ background: 'var(--bg-elev)', border: '1px solid var(--border)', padding: '8px 12px', borderRadius: 6, fontSize: '.75rem', zIndex: 100, boxShadow: 'var(--shadow)' }}>
+          <div style={{ color: 'var(--text-2)', marginBottom: 4 }}>{label}</div>
+          <div style={{ color: 'var(--text-3)' }}>
+            Estimé : <span style={{ color: 'var(--text)' }}>{pData.Estimate?.toFixed(2)} {devise}</span>
+          </div>
+          {!pData.isFuture && (
+            <>
+              <div style={{ color: 'var(--text-3)' }}>
+                Publié : <span style={{ color: 'var(--text)' }}>{pData.Actual?.toFixed(2)} {devise}</span>
+              </div>
+              <div style={{ marginTop: 4, fontWeight: 'bold', color: pData.beat ? 'var(--green)' : 'var(--red)' }}>
+                {pData.diff > 0 ? '+' : ''}{pData.diff.toFixed(2)} {devise} ({pData.beat ? 'Beat' : 'Miss'})
+              </div>
+            </>
+          )}
+          {pData.isFuture && (
+            <div style={{ marginTop: 4, fontStyle: 'italic', color: 'var(--text-3)' }}>
+              Prochain résultat attendu
+            </div>
+          )}
+        </div>
+      )
+    }
+    return null
+  }
+
+  const CustomizedAxisTick = (props) => {
+    const { x, y, payload, index } = props;
+    const d = chartData[index];
+    if (!d) return null;
+    
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text x={0} y={0} dy={16} textAnchor="middle" fill="var(--text-2)" fontSize={11}>
+          {d.displayDate}
+        </text>
+        {!d.isFuture ? (
+          <>
+            <text x={0} y={0} dy={32} textAnchor="middle" fill={d.beat ? 'var(--green)' : 'var(--red)'} fontSize={11} fontWeight="bold">
+              {d.beat ? 'Dépassé' : 'Manqué'}
+            </text>
+            <text x={0} y={0} dy={46} textAnchor="middle" fill={d.beat ? 'var(--green)' : 'var(--red)'} fontSize={11}>
+              {d.diff > 0 ? '+' : ''}{d.diff.toFixed(2)} {devise}
+            </text>
+          </>
+        ) : (
+          <text x={0} y={0} dy={32} textAnchor="middle" fill="var(--text-3)" fontSize={11}>
+            —
+          </text>
+        )}
+      </g>
+    );
+  };
+
+  return (
+    <div className="card fade-up" style={{ marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+        <div className="card-label" style={{ marginBottom: 0 }}>Surprises sur les bénéfices</div>
+        <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>BPA / EPS</span>
+      </div>
+      <div style={{ flex: 1, minHeight: 250, width: '100%' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 45 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+            <XAxis dataKey="displayDate" tick={<CustomizedAxisTick />} tickLine={false} axisLine={false} padding={{ left: 25, right: 25 }} />
+            <YAxis stroke="var(--text-3)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => v.toFixed(2)} />
+            <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1, strokeDasharray: '3 3' }} />
+            
+            <Line 
+              type="monotone" 
+              dataKey="Estimate" 
+              stroke="none" 
+              isAnimationActive={false} 
+              dot={{ stroke: 'var(--text-3)', strokeWidth: 2, fill: 'var(--bg-elev)', r: 6 }} 
+              activeDot={{ r: 8, stroke: 'var(--text-3)', strokeWidth: 2, fill: 'var(--bg-elev)' }} 
+            />
+            
+            <Line 
+              type="monotone" 
+              dataKey="Actual" 
+              stroke="none" 
+              isAnimationActive={false} 
+              dot={(props) => {
+                const { cx, cy, payload } = props;
+                if (payload.isFuture || cx == null || cy == null) return null;
+                return (
+                  <circle key={`dot-${cx}-${cy}`} cx={cx} cy={cy} r={6} fill={payload.beat ? 'var(--green)' : 'var(--red)'} />
+                );
+              }}
+              activeDot={(props) => {
+                const { cx, cy, payload } = props;
+                if (payload.isFuture || cx == null || cy == null) return null;
+                return (
+                  <circle key={`activedot-${cx}-${cy}`} cx={cx} cy={cy} r={8} fill={payload.beat ? 'var(--green)' : 'var(--red)'} />
+                );
+              }}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 12, fontSize: '.7rem', color: 'var(--text-3)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid var(--text-3)', background: 'var(--bg-elev)' }}></div> Estimé
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--green)' }}></div> Beat
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red)' }}></div> Miss
+        </div>
       </div>
     </div>
   )
@@ -986,9 +1194,20 @@ function getPEAEligibility(d) {
 // ── Sensibilité DCF ────────────────────────────────────────
 
 function DCFSensitivity({ fcf0, shares, cours, waccBase, croisBase, tgBase, annees, devise }) {
-  const [infoOpen, setInfoOpen] = useState(false)
+  const [anchorEl, setAnchorEl] = useState(null)
+  const timerRef = useRef(null)
   const waccSteps = [-2, -1, 0, 1, 2]
   const croisSteps = [-4, -2, 0, 2, 4]
+
+  const handleEnter = (e) => {
+    clearTimeout(timerRef.current)
+    setAnchorEl(e.currentTarget)
+  }
+  const handleLeave = () => {
+    timerRef.current = setTimeout(() => {
+      setAnchorEl(null)
+    }, 150)
+  }
 
   function calcVI(wacc, crois) {
     const wD = wacc / 100, tD = tgBase / 100, cD = crois / 100
@@ -1008,29 +1227,31 @@ function DCFSensitivity({ fcf0, shares, cours, waccBase, croisBase, tgBase, anne
         <div className="card-label" style={{ marginBottom: 0 }}>
           Sensibilite — Valeur intrinseque ({devise})
         </div>
-        <button
-          type="button"
-          onClick={() => setInfoOpen(true)}
+        <div
+          onMouseEnter={handleEnter}
+          onMouseLeave={handleLeave}
           style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: 'rgba(255,255,255,0.25)', padding: '0 2px', fontSize: '.88rem', lineHeight: 1,
+            cursor: 'pointer',
+            color: 'rgba(255,255,255,0.25)', padding: '0 2px', fontSize: '1.05rem', lineHeight: 1,
             transition: 'color .15s', flexShrink: 0,
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--green)' }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
-        >&#9432;</button>
-        {infoOpen && (
-          <MetricModal
-            label="Sensibilite DCF"
-            info={METRIC_INFO['dcf_sensitivity']}
-            metricKey="dcf_sensitivity"
-            stockData={null}
-            onClose={() => setInfoOpen(false)}
-          />
-        )}
+          onMouseOver={(e) => { e.currentTarget.style.color = 'var(--green)' }}
+          onMouseOut={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
+        >
+          &#9432;
+          {anchorEl && (
+            <MetricTooltip
+              label="Sensibilite DCF"
+              info={METRIC_INFO['dcf_sensitivity']}
+              metricKey="dcf_sensitivity"
+              stockData={null}
+              anchorEl={anchorEl}
+            />
+          )}
+        </div>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '.72rem', fontFamily: 'var(--mono)' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed', fontSize: '.72rem', fontFamily: 'var(--mono)' }}>
           <thead>
             <tr>
               <th style={{ padding: '4px 8px', color: 'var(--text-3)', textAlign: 'left', fontWeight: 400, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
@@ -1078,6 +1299,20 @@ function DCFSensitivity({ fcf0, shares, cours, waccBase, croisBase, tgBase, anne
 
 // ── DCF interactif ─────────────────────────────────────────
 
+// Component pour les curseurs interactifs
+const SliderRow = ({ label, value, setValue, min, max, step, unit }) => (
+  <div style={{ marginBottom: 10 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '.75rem' }}>
+      <span style={{ color: 'var(--text-2)' }}>{label}</span>
+      <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 600 }}>{value}{unit}</span>
+    </div>
+    <input type="range" min={min} max={max} step={step} value={value}
+      onChange={e => setValue(Number(e.target.value))}
+      style={{ width: '100%', accentColor: 'var(--green)', cursor: 'pointer' }}
+    />
+  </div>
+)
+
 function DCFModel({ d }) {
   const fcf0 = d?.fcf_ttm
   const shares = d?.shares
@@ -1114,19 +1349,6 @@ function DCFModel({ d }) {
   const valeurIntrinsecque = (pvFcf + pvTerminale) / shares
   const margeSécurité = cours > 0 ? ((valeurIntrinsecque - cours) / cours) * 100 : 0
   const isUnder = margeSécurité > 0
-
-  const SliderRow = ({ label, value, setValue, min, max, step, unit }) => (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: '.75rem' }}>
-        <span style={{ color: 'var(--text-2)' }}>{label}</span>
-        <span style={{ fontFamily: 'var(--mono)', color: 'var(--green)', fontWeight: 600 }}>{value}{unit}</span>
-      </div>
-      <input type="range" min={min} max={max} step={step} value={value}
-        onChange={e => setValue(Number(e.target.value))}
-        style={{ width: '100%', accentColor: 'var(--green)', cursor: 'pointer' }}
-      />
-    </div>
-  )
 
   return (<>
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }}>
@@ -1377,7 +1599,18 @@ function SectorComparison({ d }) {
 // ── Memo Grok proactif ─────────────────────────────────────
 
 function MemoGrok({ memo, loading, error, onRetry, onGenerate }) {
-  const [infoOpen, setInfoOpen] = useState(false)
+  const [anchorEl, setAnchorEl] = useState(null)
+  const timerRef = useRef(null)
+
+  const handleEnter = (e) => {
+    clearTimeout(timerRef.current)
+    setAnchorEl(e.currentTarget)
+  }
+  const handleLeave = () => {
+    timerRef.current = setTimeout(() => {
+      setAnchorEl(null)
+    }, 150)
+  }
 
   const htmlContent = memo
     ? DOMPurify.sanitize(marked.parse(memo))
@@ -1396,26 +1629,28 @@ function MemoGrok({ memo, loading, error, onRetry, onGenerate }) {
             letterSpacing: '.18em', textTransform: 'uppercase',
             color: 'rgba(110,231,255,0.88)',
           }}>Tomino Intelligence</span>
-          <button
-            type="button"
-            onClick={() => setInfoOpen(true)}
+          <div
+            onMouseEnter={handleEnter}
+            onMouseLeave={handleLeave}
             style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'rgba(255,255,255,0.25)', padding: '0 2px', fontSize: '.88rem', lineHeight: 1,
+              cursor: 'pointer', color: 'rgba(255,255,255,0.25)',
+              padding: '0 2px', fontSize: '1.05rem', lineHeight: 1,
               transition: 'color .15s', flexShrink: 0,
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--green)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
-          >&#9432;</button>
-          {infoOpen && (
-            <MetricModal
-              label="Tomino Intelligence"
-              info={METRIC_INFO['memo_grok']}
-              metricKey="memo_grok"
-              stockData={null}
-              onClose={() => setInfoOpen(false)}
-            />
-          )}
+            onMouseOver={(e) => { e.currentTarget.style.color = 'var(--green)' }}
+            onMouseOut={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
+          >
+            &#9432;
+            {anchorEl && (
+              <MetricTooltip
+                label="Tomino Intelligence"
+                info={METRIC_INFO['memo_grok']}
+                metricKey="memo_grok"
+                stockData={null}
+                anchorEl={anchorEl}
+              />
+            )}
+          </div>
         </div>
         <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Analyse factuelle · pas un conseil</span>
       </div>
@@ -1855,6 +2090,10 @@ export default function StockAnalyse() {
   })
   const [memoLoading, setMemoLoading] = useState(false)
   const [memoError, setMemoError] = useState('')
+  const [upcomingEvents, setUpcomingEvents] = useState([])
+  const [upcomingEventsLoading, setUpcomingEventsLoading] = useState(false)
+  const [dividendesPerso, setDividendesPerso] = useState([])
+  const [dividendesPersoLoading, setDividendesPersoLoading] = useState(false)
   const [favorites, setFavorites] = useState(() => {
     try { return JSON.parse(localStorage.getItem('tomino_stock_favorites') || '[]') } catch { return [] }
   })
@@ -1972,6 +2211,30 @@ export default function StockAnalyse() {
     }
   }
 
+  async function loadUpcomingEvents(stockData) {
+    const ticker = String(stockData?.ticker || '').trim().toUpperCase()
+    if (!ticker) {
+      setUpcomingEvents([])
+      return
+    }
+
+    setUpcomingEventsLoading(true)
+    try {
+      const res = await api.post('/evenements/prochains', {
+        items: [{
+          ticker,
+          nom: stockData?.nom_court || stockData?.nom || ticker,
+          quantite: 0,
+        }],
+      })
+      setUpcomingEvents(Array.isArray(res?.events) ? res.events : [])
+    } catch {
+      setUpcomingEvents([])
+    } finally {
+      setUpcomingEventsLoading(false)
+    }
+  }
+
   async function loadStock(t, force = false) {
     setSuggestions([])
     const isNewTicker = t !== _store.currentTicker
@@ -2002,6 +2265,7 @@ export default function StockAnalyse() {
       if (!json.ok) throw new Error(json.erreur || 'Données introuvables')
       _store.data = json
       setData(json)
+      loadUpcomingEvents(json)
       // En mode manuel, on ne lance jamais de génération automatique.
       if (_store.memosCache[t] && !force) {
         setMemo(_store.memosCache[t])
@@ -2020,6 +2284,30 @@ export default function StockAnalyse() {
     loadStock(s.ticker)
   }
 
+  useEffect(() => {
+    if (!ticker) return
+    loadUpcomingEvents({
+      ticker,
+      nom: data?.nom_court || data?.nom || ticker,
+    })
+    // Charger les dividendes historiques de l'entreprise
+    async function loadDividendesEntreprise() {
+      try {
+        setDividendesPersoLoading(true)
+        const res = await fetch(`${BASE}/stock/dividendes-historique/${encodeURIComponent(ticker)}`)
+        const json = await res.json()
+        setDividendesPerso(Array.isArray(json?.dividendes) ? json.dividendes : [])
+      } catch {
+        setDividendesPerso([])
+      } finally {
+        setDividendesPersoLoading(false)
+      }
+    }
+    loadDividendesEntreprise()
+    // Chargement initial du ticker déjà présent au montage.
+    // Les chargements ultérieurs passent par loadStock().
+  }, [ticker])
+
   function onSearchKey(e) {
     if (e.key === 'Enter') {
       if (suggestions.length > 0) {
@@ -2037,6 +2325,15 @@ export default function StockAnalyse() {
   const pos52w = d?.cours && d?.cours_52w_bas && d?.cours_52w_haut
     ? Math.round(((d.cours - d.cours_52w_bas) / (d.cours_52w_haut - d.cours_52w_bas)) * 100)
     : null
+
+  const last5Dividendes = useMemo(() => {
+    if (!dividendesPerso || !dividendesPerso.length) return []
+    // Les données viennent déjà filtrées et triées par l'API
+    return dividendesPerso.map((div) => ({
+      date: div.date,
+      montant: Number(div.montant || 0),
+    }))
+  }, [ticker, dividendesPerso])
 
   const recoLabel = {
     'strong_buy': 'Achat fort', 'buy': 'Achat', 'hold': 'Neutre',
@@ -2094,13 +2391,16 @@ export default function StockAnalyse() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onSearchKey}
+              onFocus={(e) => e.target.select()}
               placeholder="Rechercher une action — nom ou ticker (ex : LVMH, AAPL, MC.PA)"
               style={{ paddingRight: 48, fontSize: '.9rem', width: '100%' }}
               autoComplete="off"
             />
-            <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', fontSize: '.75rem', fontFamily: 'var(--mono)' }}>
-              {loadingSuggestions ? '...' : '⏎'}
-            </span>
+            {loadingSuggestions && (
+              <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', fontSize: '.75rem', fontFamily: 'var(--mono)' }}>
+                ...
+              </span>
+            )}
           </div>
 
           {ticker && (
@@ -2119,9 +2419,9 @@ export default function StockAnalyse() {
               onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.25)' }}
               onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-3)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)' }}
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12.5 7A5.5 5.5 0 1 1 7 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
-                <path d="M7 1.5L9.5 4L12 1.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg className={loading ? "animate-spin" : ""} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
               </svg>
             </button>
           )}
@@ -2203,7 +2503,15 @@ export default function StockAnalyse() {
                   {d.pays && <> &middot; {tr(PAYS_FR, d.pays)}</>}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexShrink: 0 }}>
+                {d.capitalisation && !d.source_limitee && (
+                  <div style={{ textAlign: 'right', marginTop: 4, paddingRight: 8, borderRight: '1px solid rgba(255,255,255,0.08)' }} title="Capitalisation boursière">
+                    <div style={{ fontSize: '.95rem', fontFamily: 'var(--mono)', color: 'var(--text-3)' }}>
+                      <span style={{ fontSize: '.7rem', color: 'rgba(255,255,255,0.4)', marginRight: 6 }}>CAP.</span>
+                      {fmtGrand(d.capitalisation)}
+                    </div>
+                  </div>
+                )}
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
                     {val(d.cours)} <span style={{ fontSize: '.8rem', color: 'var(--text-3)' }}>{d.devise}</span>
@@ -2258,36 +2566,15 @@ export default function StockAnalyse() {
             )}
           </div>
 
-          {!d.source_limitee && (
-            <MemoGrok
-              memo={memo}
-              loading={memoLoading}
-              error={memoError}
-              onRetry={() => loadMemo(data, history)}
-              onGenerate={() => loadMemo(data, history)}
+          <div className="fade-up" style={{ marginBottom: 20 }}>
+            <UpcomingEventsPanel
+              title="Prochains événements"
+              subtitle="Résultats et dividendes liés à cette action"
+              events={upcomingEvents}
+              emptyText={upcomingEventsLoading ? 'Chargement des événements...' : 'Aucun événement identifié sur l’horizon disponible.'}
+              compact
+              maxHeight={320}
             />
-          )}
-
-          <PriceChart ticker={d.ticker} devise={d.devise} />
-
-          {/* Cours & Marché */}
-          <div className="g3 fade-up" style={{ marginBottom: 20 }}>
-            <Stat
-              label="52 semaines"
-              value={`${val(d.cours_52w_bas)} — ${val(d.cours_52w_haut)}`}
-              infoKey="52w" stockData={d}
-            />
-            {!d.source_limitee && (
-              <>
-                <Stat label="Capitalisation" value={fmtGrand(d.capitalisation)} infoKey="capitalisation" stockData={d} />
-                <Stat
-                  label="Bêta"
-                  value={val(d.beta)}
-                  color={d.beta != null ? (d.beta > 1.5 ? 'var(--red)' : d.beta < 0.7 ? 'var(--green)' : 'var(--text)') : 'var(--text)'}
-                  infoKey="beta" stockData={d}
-                />
-              </>
-            )}
           </div>
 
           {d.source_limitee && (
@@ -2304,10 +2591,36 @@ export default function StockAnalyse() {
             </div>
           )}
 
+          <PriceChart ticker={d.ticker} devise={d.devise} />
+
+
+
+          {!d.source_limitee && (
+            <MemoGrok
+              memo={memo}
+              loading={memoLoading}
+              error={memoError}
+              onRetry={() => loadMemo(data, history)}
+              onGenerate={() => loadMemo(data, history)}
+            />
+          )}
+
           <SectionHistorique history={history} loading={historyLoading} />
 
           {!d.source_limitee && (
             <>
+              {/* DCF */}
+              <div className="card fade-up" style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="card-label" style={{ marginBottom: 0 }}>Valorisation DCF</div>
+                    <HoverInfo label="Modèle DCF" infoKey="dcf_usage" stockData={null} />
+                  </div>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Modèle simplifié · not advice</span>
+                </div>
+                <DCFModel d={d} />
+              </div>
+
               {/* Valorisation */}
               <div className="card fade-up" style={{ marginBottom: 20 }}>
                 <div className="card-label" style={{ marginBottom: 16 }}>Valorisation</div>
@@ -2323,14 +2636,53 @@ export default function StockAnalyse() {
 
               <SectorComparison d={d} />
 
-              {/* Valorisation FCF */}
-              <div className="card fade-up" style={{ marginBottom: 20 }}>
-                <div className="card-label" style={{ marginBottom: 16 }}>Flux de trésorerie</div>
-                <div className="g3">
-                  <Stat label="Price / FCF" value={d.price_fcf != null ? `${n2(d.price_fcf)}x` : '—'} color={d.price_fcf != null ? (d.price_fcf < 15 ? 'var(--green)' : d.price_fcf > 40 ? 'var(--red)' : 'var(--text)') : 'var(--text)'} infoKey="price_fcf" stockData={d} />
-                  <Stat label="FCF TTM" value={d.fcf_ttm != null ? fmtGrand(d.fcf_ttm) + (d.devise ? ' ' + d.devise : '') : '—'} infoKey="price_fcf" stockData={d} />
-                  <Stat label="FCF / action" value={d.fcf_par_action != null ? `${n2(d.fcf_par_action)} ${d.devise || ''}` : '—'} infoKey="fcf_par_action" stockData={d} />
+              {/* Consensus analystes et Surprises */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 20 }}>
+                <div className="card fade-up" style={{ marginBottom: 0, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+                    <div className="card-label" style={{ marginBottom: 0 }}>Consensus analystes</div>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>
+                      {d.nb_analystes ? `${d.nb_analystes} analyste(s)` : ''}
+                    </span>
+                  </div>
+
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <div className="g3" style={{ marginBottom: 20 }}>
+                      <Stat
+                        label="Recommandation"
+                        value={recoLabel[d.recommandation] || d.recommandation || '—'}
+                        color={
+                          d.recommandation?.includes('buy') ? 'var(--green)' :
+                          d.recommandation?.includes('sell') ? 'var(--red)' :
+                          'var(--text)'
+                        }
+                        infoKey="recommandation" stockData={d}
+                      />
+                      <Stat label="Objectif moyen" value={val(d.objectif_moyen, ' ' + (d.devise || ''))} infoKey="objectif_moyen" stockData={d} />
+                      <Stat
+                        label="Potentiel"
+                        value={d.cours && d.objectif_moyen ? ((d.objectif_moyen / d.cours - 1) >= 0 ? '+' : '') + ((d.objectif_moyen / d.cours - 1) * 100).toFixed(1) + '%' : '—'}
+                        color={d.cours && d.objectif_moyen ? signColor(d.objectif_moyen - d.cours) : 'var(--text)'}
+                      />
+                    </div>
+
+                    <TargetRange bas={d.objectif_bas} moyen={d.objectif_moyen} haut={d.objectif_haut} cours={d.cours} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.7rem', fontFamily: 'var(--mono)', color: 'var(--text-3)' }}>
+                      <span>Bas : {val(d.objectif_bas)}</span>
+                      <span>Haut : {val(d.objectif_haut)}</span>
+                    </div>
+
+                    {d.consensus && (
+                      <div style={{ marginTop: 24 }}>
+                        <RecoBar consensus={d.consensus} />
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {history?.earnings_surprise && history.earnings_surprise.length > 0 && (
+                  <EarningsSurpriseChart data={history.earnings_surprise} devise={d.devise} />
+                )}
               </div>
 
               {/* Santé financière */}
@@ -2353,59 +2705,90 @@ export default function StockAnalyse() {
                 </div>
               </div>
 
-              {/* Dividende */}
-              {(d.rendement_div != null || d.dividende_par_action != null) && (
-                <div className="g3 fade-up" style={{ marginBottom: 20 }}>
-                  <Stat label="Rendement dividende" value={pct(d.rendement_div)} color={d.rendement_div > 0 ? 'var(--green)' : 'var(--text)'} infoKey="rendement_div" stockData={d} />
-                  <Stat label="Dividende / action" value={val(d.dividende_par_action, ' ' + (d.devise || ''))} infoKey="dividende_action" stockData={d} />
-                  <Stat label="Taux de distribution" value={pct(d.taux_distribution)} infoKey="taux_distribution" stockData={d} />
-                </div>
-              )}
-
-              {/* DCF */}
+              {/* Flux de trésorerie */}
               <div className="card fade-up" style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 16 }}>
-                  <div className="card-label">Valorisation DCF</div>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Modèle simplifié · not advice</span>
+                <div className="card-label" style={{ marginBottom: 16 }}>Flux de trésorerie</div>
+                <div className="g3">
+                  <Stat label="Price / FCF" value={d.price_fcf != null ? `${n2(d.price_fcf)}x` : '—'} color={d.price_fcf != null ? (d.price_fcf < 15 ? 'var(--green)' : d.price_fcf > 40 ? 'var(--red)' : 'var(--text)') : 'var(--text)'} infoKey="price_fcf" stockData={d} />
+                  <Stat label="FCF TTM" value={d.fcf_ttm != null ? fmtGrand(d.fcf_ttm) + (d.devise ? ' ' + d.devise : '') : '—'} infoKey="price_fcf" stockData={d} />
+                  <Stat label="FCF / action" value={d.fcf_par_action != null ? `${n2(d.fcf_par_action)} ${d.devise || ''}` : '—'} infoKey="fcf_par_action" stockData={d} />
                 </div>
-                <DCFModel d={d} />
               </div>
 
-              {/* Consensus analystes */}
+              {/* Dividende */}
+              {(d.rendement_div != null || d.dividende_par_action != null) && (
+                <>
+                  <div className="g3 fade-up" style={{ marginBottom: 20 }}>
+                    <Stat label="Rendement dividende" value={pct(d.rendement_div)} color={d.rendement_div > 0 ? 'var(--green)' : 'var(--text)'} infoKey="rendement_div" stockData={d} />
+                    <Stat label="Dividende / action" value={val(d.dividende_par_action, ' ' + (d.devise || ''))} infoKey="dividende_action" stockData={d} />
+                    <Stat label="Taux de distribution" value={pct(d.taux_distribution)} infoKey="taux_distribution" stockData={d} />
+                  </div>
+
+                  {last5Dividendes.length > 0 && (
+                    <div className="card fade-up" style={{ marginBottom: 20 }}>
+                      <div className="card-label" style={{ marginBottom: 8 }}>Dividendes versés par l'entreprise</div>
+                      <div style={{ color: 'var(--text-2)', fontSize: '.9rem', marginBottom: 16 }}>5 derniers versements à ses actionnaires.</div>
+                      <div style={{ height: 280 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={last5Dividendes}
+                            margin={{ top: 8, right: 8, left: 8, bottom: 32 }}
+                          >
+                            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
+                            <XAxis
+                              dataKey="date"
+                              tick={{ fill: '#718095', fontSize: 10, fontFamily: 'var(--mono)' }}
+                              axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
+                              tickLine={false}
+                              angle={-45}
+                              textAnchor="end"
+                              height={80}
+                            />
+                            <YAxis
+                              tickFormatter={(v) => `${Number(v).toLocaleString('fr-FR')} €`}
+                              tick={{ fill: '#718095', fontSize: 11, fontFamily: 'var(--mono)' }}
+                              axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
+                              tickLine={false}
+                              width={88}
+                            />
+                            <Tooltip
+                              content={({ active, payload }) => {
+                                if (!active || !payload?.length) return null
+                                const data = payload[0].payload
+                                return (
+                                  <div style={{ background: 'rgba(16,18,24,.96)', border: '1px solid rgba(255,255,255,.14)', borderRadius: 10, padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '.75rem' }}>
+                                    <div style={{ color: 'var(--text-3)', marginBottom: 4 }}>{data.date}</div>
+                                    <div style={{ color: 'var(--green)', fontWeight: 700 }}>{Number(data.montant || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 })}</div>
+                                  </div>
+                                )
+                              }}
+                              cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                            />
+                            <Bar dataKey="montant" fill="rgba(24,195,126,0.82)" radius={[8, 8, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Marché & Volatilité */}
               <div className="card fade-up" style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
-                  <div className="card-label" style={{ marginBottom: 0 }}>Consensus analystes</div>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>
-                    {d.nb_analystes ? `${d.nb_analystes} analyste(s)` : ''}
-                  </span>
-                </div>
-
-                <div className="g3" style={{ marginBottom: 20 }}>
+                <div className="card-label" style={{ marginBottom: 16 }}>Marché &amp; Volatilité</div>
+                <div className="g3">
                   <Stat
-                    label="Recommandation"
-                    value={recoLabel[d.recommandation] || d.recommandation || '—'}
-                    color={
-                      d.recommandation?.includes('buy') ? 'var(--green)' :
-                      d.recommandation?.includes('sell') ? 'var(--red)' :
-                      'var(--text)'
-                    }
-                    infoKey="recommandation" stockData={d}
+                    label="52 semaines"
+                    value={`${val(d.cours_52w_bas)} — ${val(d.cours_52w_haut)}`}
+                    infoKey="52w" stockData={d}
                   />
-                  <Stat label="Objectif moyen" value={val(d.objectif_moyen, ' ' + (d.devise || ''))} infoKey="objectif_moyen" stockData={d} />
                   <Stat
-                    label="Potentiel"
-                    value={d.cours && d.objectif_moyen ? ((d.objectif_moyen / d.cours - 1) >= 0 ? '+' : '') + ((d.objectif_moyen / d.cours - 1) * 100).toFixed(1) + '%' : '—'}
-                    color={d.cours && d.objectif_moyen ? signColor(d.objectif_moyen - d.cours) : 'var(--text)'}
+                    label="Bêta"
+                    value={val(d.beta)}
+                    color={d.beta != null ? (d.beta > 1.5 ? 'var(--red)' : d.beta < 0.7 ? 'var(--green)' : 'var(--text)') : 'var(--text)'}
+                    infoKey="beta" stockData={d}
                   />
                 </div>
-
-                <TargetRange bas={d.objectif_bas} moyen={d.objectif_moyen} haut={d.objectif_haut} cours={d.cours} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.7rem', fontFamily: 'var(--mono)', color: 'var(--text-3)', marginBottom: 16 }}>
-                  <span>Bas : {val(d.objectif_bas)}</span>
-                  <span>Haut : {val(d.objectif_haut)}</span>
-                </div>
-
-                {d.consensus && <RecoBar consensus={d.consensus} />}
               </div>
             </>
           )}

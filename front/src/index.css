@@ -348,7 +348,7 @@ a {
 	border-bottom: 1px solid var(--line);
 	position: sticky;
 	top: var(--demo-banner-h);
-	z-index: 50;
+	z-index: 2000;
 }
 
 .topbar-page {
@@ -1588,3 +1588,4 @@ textarea.form-input {
 		flex-direction: column;
 	}
 }
+
