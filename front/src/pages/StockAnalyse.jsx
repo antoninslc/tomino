@@ -45,17 +45,17 @@ const tr = (map, v) => (v && map[v]) || v || ''
 
 // ── Médianes sectorielles indicatives ─────────────────────
 const SECTOR_BENCHMARKS = {
-  'Technology':             { pe_forward: 24, ev_ebitda: 18, pb: 6,   roic: 0.20, marge_nette: 0.18, dette_nette_ebitda: 0.5  },
-  'Healthcare':             { pe_forward: 18, ev_ebitda: 14, pb: 4,   roic: 0.15, marge_nette: 0.15, dette_nette_ebitda: 1.5  },
-  'Financials':             { pe_forward: 10, ev_ebitda: null, pb: 1.3, roic: 0.12, marge_nette: 0.22, dette_nette_ebitda: null },
-  'Consumer Cyclical':      { pe_forward: 16, ev_ebitda: 12, pb: 3,   roic: 0.14, marge_nette: 0.08, dette_nette_ebitda: 2.0  },
-  'Consumer Defensive':     { pe_forward: 16, ev_ebitda: 13, pb: 3.5, roic: 0.16, marge_nette: 0.10, dette_nette_ebitda: 2.0  },
-  'Industrials':            { pe_forward: 17, ev_ebitda: 13, pb: 3.5, roic: 0.14, marge_nette: 0.09, dette_nette_ebitda: 2.5  },
-  'Basic Materials':        { pe_forward: 12, ev_ebitda: 8,  pb: 2,   roic: 0.12, marge_nette: 0.10, dette_nette_ebitda: 1.5  },
-  'Real Estate':            { pe_forward: 28, ev_ebitda: 18, pb: 1.5, roic: 0.06, marge_nette: 0.20, dette_nette_ebitda: 5.0  },
-  'Utilities':              { pe_forward: 16, ev_ebitda: 10, pb: 1.5, roic: 0.07, marge_nette: 0.12, dette_nette_ebitda: 4.5  },
-  'Energy':                 { pe_forward: 10, ev_ebitda: 6,  pb: 1.5, roic: 0.12, marge_nette: 0.10, dette_nette_ebitda: 1.0  },
-  'Communication Services': { pe_forward: 15, ev_ebitda: 12, pb: 3,   roic: 0.15, marge_nette: 0.14, dette_nette_ebitda: 2.0  },
+  'Technology': { pe_forward: 24, ev_ebitda: 18, pb: 6, roic: 0.20, marge_nette: 0.18, dette_nette_ebitda: 0.5 },
+  'Healthcare': { pe_forward: 18, ev_ebitda: 14, pb: 4, roic: 0.15, marge_nette: 0.15, dette_nette_ebitda: 1.5 },
+  'Financials': { pe_forward: 10, ev_ebitda: null, pb: 1.3, roic: 0.12, marge_nette: 0.22, dette_nette_ebitda: null },
+  'Consumer Cyclical': { pe_forward: 16, ev_ebitda: 12, pb: 3, roic: 0.14, marge_nette: 0.08, dette_nette_ebitda: 2.0 },
+  'Consumer Defensive': { pe_forward: 16, ev_ebitda: 13, pb: 3.5, roic: 0.16, marge_nette: 0.10, dette_nette_ebitda: 2.0 },
+  'Industrials': { pe_forward: 17, ev_ebitda: 13, pb: 3.5, roic: 0.14, marge_nette: 0.09, dette_nette_ebitda: 2.5 },
+  'Basic Materials': { pe_forward: 12, ev_ebitda: 8, pb: 2, roic: 0.12, marge_nette: 0.10, dette_nette_ebitda: 1.5 },
+  'Real Estate': { pe_forward: 28, ev_ebitda: 18, pb: 1.5, roic: 0.06, marge_nette: 0.20, dette_nette_ebitda: 5.0 },
+  'Utilities': { pe_forward: 16, ev_ebitda: 10, pb: 1.5, roic: 0.07, marge_nette: 0.12, dette_nette_ebitda: 4.5 },
+  'Energy': { pe_forward: 10, ev_ebitda: 6, pb: 1.5, roic: 0.12, marge_nette: 0.10, dette_nette_ebitda: 1.0 },
+  'Communication Services': { pe_forward: 15, ev_ebitda: 12, pb: 3, roic: 0.15, marge_nette: 0.14, dette_nette_ebitda: 2.0 },
 }
 
 // ── Infos métriques (modales détaillées) ──────────────────
@@ -357,17 +357,18 @@ function _lsSave(patch) {
   try {
     const prev = _lsLoad()
     localStorage.setItem(_LS_KEY, JSON.stringify({ ...prev, ...patch }))
-  } catch {}
+  } catch { }
 }
 
 const _lsInit = _lsLoad()
 const _store = {
-  data:            _lsInit.data            ?? null,
-  chatMessages:    [],
-  chatsByTicker:   _lsInit.chatsByTicker   ?? {},
-  currentTicker:   _lsInit.currentTicker   ?? '',
-  history:         _lsInit.history         ?? null,
-  memosCache:      _lsInit.memosCache      ?? {},
+  data: _lsInit.data ?? null,
+  chatMessages: [],
+  chatsByTicker: _lsInit.chatsByTicker ?? {},
+  currentTicker: _lsInit.currentTicker ?? '',
+  history: _lsInit.history ?? null,
+  memosCache: _lsInit.memosCache ?? {},
+  memoMeta: _lsInit.memoMeta ?? {},
 }
 
 // ── Formatters ─────────────────────────────────────────────
@@ -380,6 +381,37 @@ const fmtGrand = (v) => {
   if (v >= 1e9) return (v / 1e9).toFixed(1) + '\u00a0Md'
   if (v >= 1e6) return (v / 1e6).toFixed(0) + '\u00a0M'
   return fmtEur.format(v)
+}
+const fmtDateTime = (value) => {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString('fr-FR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+const fmtRelativeTime = (value) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const diffMs = Date.now() - date.getTime()
+  if (diffMs < 0) return 'à l’instant'
+
+  const minutes = Math.floor(diffMs / 60000)
+  if (minutes < 1) return 'à l’instant'
+  if (minutes < 60) return `il y a ${minutes} min`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `il y a ${hours} h`
+
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `il y a ${days} j`
+
+  return `le ${fmtDateTime(value)}`
 }
 function val(v, suffix = '') {
   if (v == null) return '—'
@@ -486,8 +518,10 @@ function buildLiveExample(metricKey, d) {
       return `${nom} pèse ${fmtGrand(d.capitalisation)} ${devise} en bourse. ${d.capitalisation > 1e11 ? 'Large cap : stabilité et liquidité élevées.' : d.capitalisation > 1e10 ? 'Mid-to-large cap.' : d.capitalisation > 2e9 ? 'Mid cap.' : 'Small cap : plus volatile, mais potentiel de croissance important.'}`
     case '52w':
       if (d.cours == null || d.cours_52w_bas == null || d.cours_52w_haut == null) return null
-      { const pos = Math.round(((d.cours - d.cours_52w_bas) / (d.cours_52w_haut - d.cours_52w_bas)) * 100)
-        return `${nom} cote ${n2(d.cours)} ${devise}, dans une fourchette 52 semaines de ${n2(d.cours_52w_bas)} à ${n2(d.cours_52w_haut)}. Le cours actuel se situe à ${pos} % du range — ${pos < 25 ? 'proche du bas de fourchette.' : pos > 75 ? 'proche du sommet annuel.' : 'en milieu de fourchette.'}` }
+      {
+        const pos = Math.round(((d.cours - d.cours_52w_bas) / (d.cours_52w_haut - d.cours_52w_bas)) * 100)
+        return `${nom} cote ${n2(d.cours)} ${devise}, dans une fourchette 52 semaines de ${n2(d.cours_52w_bas)} à ${n2(d.cours_52w_haut)}. Le cours actuel se situe à ${pos} % du range — ${pos < 25 ? 'proche du bas de fourchette.' : pos > 75 ? 'proche du sommet annuel.' : 'en milieu de fourchette.'}`
+      }
     case 'recommandation': {
       if (!d.recommandation) return null
       const labels = { strong_buy: 'Achat fort', buy: 'Achat', hold: 'Neutre', sell: 'Vente', strong_sell: 'Vente forte' }
@@ -496,8 +530,10 @@ function buildLiveExample(metricKey, d) {
     }
     case 'objectif_moyen':
       if (d.objectif_moyen == null || d.cours == null) return null
-      { const potentiel = ((d.objectif_moyen / d.cours - 1) * 100).toFixed(1)
-        return `L'objectif moyen des analystes sur ${nom} est ${n2(d.objectif_moyen)} ${devise}, soit un potentiel de ${potentiel > 0 ? '+' : ''}${potentiel} % par rapport au cours actuel de ${n2(d.cours)} ${devise}${d.objectif_bas != null && d.objectif_haut != null ? `. Fourchette : ${n2(d.objectif_bas)} – ${n2(d.objectif_haut)} ${devise}.` : '.'}` }
+      {
+        const potentiel = ((d.objectif_moyen / d.cours - 1) * 100).toFixed(1)
+        return `L'objectif moyen des analystes sur ${nom} est ${n2(d.objectif_moyen)} ${devise}, soit un potentiel de ${potentiel > 0 ? '+' : ''}${potentiel} % par rapport au cours actuel de ${n2(d.cours)} ${devise}${d.objectif_bas != null && d.objectif_haut != null ? `. Fourchette : ${n2(d.objectif_bas)} – ${n2(d.objectif_haut)} ${devise}.` : '.'}`
+      }
     default:
       return null
   }
@@ -513,7 +549,7 @@ function MetricTooltip({ label, info, metricKey, stockData, anchorEl }) {
     if (!anchorEl || !tooltipRef.current) return
     const rect = anchorEl.getBoundingClientRect()
     const tooltipRect = tooltipRef.current.getBoundingClientRect()
-    
+
     let top = rect.top - tooltipRect.height - 10
     let left = rect.left + rect.width / 2 - tooltipRect.width / 2
 
@@ -805,7 +841,7 @@ function EarningsSurpriseChart({ data, devise }) {
     const { x, y, payload, index } = props;
     const d = chartData[index];
     if (!d) return null;
-    
+
     return (
       <g transform={`translate(${x},${y})`}>
         <text x={0} y={0} dy={16} textAnchor="middle" fill="var(--text-2)" fontSize={11}>
@@ -842,21 +878,21 @@ function EarningsSurpriseChart({ data, devise }) {
             <XAxis dataKey="displayDate" tick={<CustomizedAxisTick />} tickLine={false} axisLine={false} padding={{ left: 25, right: 25 }} />
             <YAxis stroke="var(--text-3)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => v.toFixed(2)} />
             <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1, strokeDasharray: '3 3' }} />
-            
-            <Line 
-              type="monotone" 
-              dataKey="Estimate" 
-              stroke="none" 
-              isAnimationActive={false} 
-              dot={{ stroke: 'var(--text-3)', strokeWidth: 2, fill: 'var(--bg-elev)', r: 6 }} 
-              activeDot={{ r: 8, stroke: 'var(--text-3)', strokeWidth: 2, fill: 'var(--bg-elev)' }} 
+
+            <Line
+              type="monotone"
+              dataKey="Estimate"
+              stroke="none"
+              isAnimationActive={false}
+              dot={{ stroke: 'var(--text-3)', strokeWidth: 2, fill: 'var(--bg-elev)', r: 6 }}
+              activeDot={{ r: 8, stroke: 'var(--text-3)', strokeWidth: 2, fill: 'var(--bg-elev)' }}
             />
-            
-            <Line 
-              type="monotone" 
-              dataKey="Actual" 
-              stroke="none" 
-              isAnimationActive={false} 
+
+            <Line
+              type="monotone"
+              dataKey="Actual"
+              stroke="none"
+              isAnimationActive={false}
               dot={(props) => {
                 const { cx, cy, payload } = props;
                 if (payload.isFuture || cx == null || cy == null) return null;
@@ -916,6 +952,8 @@ function useStreamingChat(ticker) {
   const [messages, setMessages] = useState(() => _store.chatsByTicker[ticker] ?? [])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [phase, setPhase] = useState('idle') // 'idle' | 'thinking' | 'searching' | 'streaming'
+  const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState('')
   const abortRef = useRef(null)
   const bottomRef = useRef(null)
@@ -942,12 +980,14 @@ function useStreamingChat(ticker) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  async function send(stockData, historyData = null, investmentScore = null) {
+  async function send(stockData, historyData = null, investmentScore = null, upcomingEvents = null) {
     const content = input.trim()
     if (!content || sending) return
     setError('')
     setInput('')
     setSending(true)
+    setPhase('thinking')
+    setSearchQuery('')
 
     const next = [...messages, { role: 'user', content }, { role: 'assistant', content: '' }]
     setMessages(next)
@@ -965,6 +1005,7 @@ function useStreamingChat(ticker) {
           stock_data: stockData,
           history_data: historyData,
           investment_score: investmentScore,
+          upcoming_events: upcomingEvents,
           conv_id: convIdRef.current,
         }),
       })
@@ -972,7 +1013,7 @@ function useStreamingChat(ticker) {
       if (!res.ok || !res.body) {
         const txt = await res.text()
         let msg = 'Erreur du serveur'
-        try { msg = JSON.parse(txt)?.erreur || msg } catch {}
+        try { msg = JSON.parse(txt)?.erreur || msg } catch { }
         throw new Error(msg)
       }
 
@@ -991,10 +1032,26 @@ function useStreamingChat(ticker) {
             if (!line.startsWith('data:')) continue
             let data
             try { data = JSON.parse(line.replace(/^data:\s*/, '')) } catch { continue }
+            if (typeof data.__status__ === 'string') {
+              if (data.__status__ === 'searching') {
+                setPhase('searching')
+                setSearchQuery(data.query || '')
+              } else if (data.__status__ === 'done_searching') {
+                setPhase('thinking')
+                setSearchQuery('')
+              } else if (data.__status__ === 'thinking') {
+                setPhase('thinking')
+              }
+              continue
+            }
             if (typeof data.delta === 'string') {
+              // Dès qu'on reçoit du texte, on passe en mode streaming
+              setPhase('streaming')
+              // Supprimer les numéros de citations xAI du type [1], [2][3], etc.
+              const cleanDelta = data.delta.replace(/\[\d+\](?:\[\d+\])*/g, '')
               setMessages((prev) => {
                 const updated = [...prev]
-                updated[updated.length - 1] = { ...updated[updated.length - 1], content: updated[updated.length - 1].content + data.delta }
+                updated[updated.length - 1] = { ...updated[updated.length - 1], content: updated[updated.length - 1].content + cleanDelta }
                 return updated
               })
             }
@@ -1003,11 +1060,13 @@ function useStreamingChat(ticker) {
         if (done) break
       }
     } catch (e) {
+      setPhase('idle')
       if (e?.name === 'AbortError') setError('Délai dépassé — réessayez.')
       else if (e?.name !== 'AbortError') setError(e?.message || 'Erreur de connexion')
     } finally {
       clearTimeout(timer)
       setSending(false)
+      setPhase('idle')
     }
   }
 
@@ -1020,16 +1079,72 @@ function useStreamingChat(ticker) {
     convIdRef.current = crypto.randomUUID()
   }
 
-  return { messages, input, setInput, sending, send, error, bottomRef, clearChat }
+  return { messages, input, setInput, sending, phase, searchQuery, send, error, bottomRef, clearChat }
+}
+
+// ── Composant ThinkingBubble ───────────────────────────────
+
+function ThinkingBubble({ phase, searchQuery }) {
+  return (
+    <>
+      <style>{`
+        @keyframes _tdot {
+          0%, 60%, 100% { opacity: 0.15; transform: translateY(0); }
+          30% { opacity: 0.7; transform: translateY(-3px); }
+        }
+        @keyframes _tspin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+
+      {phase === 'searching' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span style={{
+              width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+              border: '1.5px solid rgba(24,195,126,0.25)',
+              borderTopColor: '#18c37e',
+              animation: '_tspin 0.75s linear infinite',
+              display: 'inline-block',
+            }} />
+            <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: '#18c37e', letterSpacing: '0.03em' }}>
+              web search
+            </span>
+          </div>
+          {searchQuery && (
+            <span style={{
+              fontFamily: 'var(--mono)', fontSize: '.68rem',
+              color: 'var(--text-3)', letterSpacing: '0.01em',
+              paddingLeft: 17,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block',
+            }}>
+              {searchQuery}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingTop: 2 }}>
+          {[0, 1, 2].map(i => (
+            <span key={i} style={{
+              width: 5, height: 5, borderRadius: '50%',
+              background: 'var(--text-3)',
+              display: 'inline-block',
+              animation: `_tdot 1.2s ease-in-out ${i * 0.18}s infinite`,
+            }} />
+          ))}
+        </div>
+      )}
+    </>
+  )
 }
 
 // ── Composant FloatingChat ─────────────────────────────────
 
-function FloatingChat({ stockData, historyData, investmentScore, open, onToggle, ticker }) {
-  const { messages, input, setInput, sending, send, error, bottomRef, clearChat } = useStreamingChat(ticker)
+function FloatingChat({ stockData, historyData, investmentScore, upcomingEvents, open, onToggle, ticker }) {
+  const { messages, input, setInput, sending, phase, searchQuery, send, error, bottomRef, clearChat } = useStreamingChat(ticker)
 
   function onKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(stockData, historyData, investmentScore) }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(stockData, historyData, investmentScore, upcomingEvents) }
   }
 
   return (
@@ -1048,12 +1163,12 @@ function FloatingChat({ stockData, historyData, investmentScore, open, onToggle,
       >
         {open ? (
           <>
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1.5 2.5C1.5 1.95 1.95 1.5 2.5 1.5H12.5C13.05 1.5 13.5 1.95 13.5 2.5V9.5C13.5 10.05 13.05 10.5 12.5 10.5H5L2 13.5V10.5H2.5C1.95 10.5 1.5 10.05 1.5 9.5V2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M4.5 5.5H10.5M4.5 7.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1.5 2.5C1.5 1.95 1.95 1.5 2.5 1.5H12.5C13.05 1.5 13.5 1.95 13.5 2.5V9.5C13.5 10.05 13.05 10.5 12.5 10.5H5L2 13.5V10.5H2.5C1.95 10.5 1.5 10.05 1.5 9.5V2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /><path d="M4.5 5.5H10.5M4.5 7.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
             Fermer le chat
           </>
         ) : (
           <>
-            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1.5 2.5C1.5 1.95 1.95 1.5 2.5 1.5H12.5C13.05 1.5 13.5 1.95 13.5 2.5V9.5C13.5 10.05 13.05 10.5 12.5 10.5H5L2 13.5V10.5H2.5C1.95 10.5 1.5 10.05 1.5 9.5V2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/><path d="M4.5 5.5H10.5M4.5 7.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1.5 2.5C1.5 1.95 1.95 1.5 2.5 1.5H12.5C13.05 1.5 13.5 1.95 13.5 2.5V9.5C13.5 10.05 13.05 10.5 12.5 10.5H5L2 13.5V10.5H2.5C1.95 10.5 1.5 10.05 1.5 9.5V2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /><path d="M4.5 5.5H10.5M4.5 7.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
             Demander à Tomino
           </>
         )}
@@ -1082,9 +1197,11 @@ function FloatingChat({ stockData, historyData, investmentScore, open, onToggle,
             <button
               type="button"
               onClick={clearChat}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px',
-                       color: 'var(--text-3)', fontSize: '.7rem', fontFamily: 'var(--mono)',
-                       opacity: 0.6, transition: 'opacity .15s' }}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px',
+                color: 'var(--text-3)', fontSize: '.7rem', fontFamily: 'var(--mono)',
+                opacity: 0.6, transition: 'opacity .15s'
+              }}
               onMouseEnter={e => e.currentTarget.style.opacity = '1'}
               onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
               title="Effacer la conversation"
@@ -1111,9 +1228,13 @@ function FloatingChat({ stockData, historyData, investmentScore, open, onToggle,
                 color: 'var(--text)',
               }}>
                 {m.role === 'assistant' ? (
-                  <div className="prose-ai" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(m.content || (sending ? '…' : ''))) }} />
+                  m.content ? (
+                    <div className="prose-ai" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(m.content)) }} />
+                  ) : sending && i === messages.length - 1 ? (
+                    <ThinkingBubble phase={phase} searchQuery={searchQuery} />
+                  ) : null
                 ) : (
-                  <span style={{ whiteSpace: 'pre-wrap' }}>{m.content}</span>
+                  <span style={{ whiteSpace: 'pre-wrap', userSelect: 'text' }}>{m.content}</span>
                 )}
               </div>
             </div>
@@ -1143,7 +1264,7 @@ function FloatingChat({ stockData, historyData, investmentScore, open, onToggle,
           />
           <button
             type="button"
-            onClick={() => send(stockData, historyData, investmentScore)}
+            onClick={() => send(stockData, historyData, investmentScore, upcomingEvents)}
             disabled={sending || !input.trim()}
             className="btn btn-primary"
             style={{ height: 42, minWidth: 88, alignSelf: 'flex-end', flexShrink: 0 }}
@@ -1598,7 +1719,7 @@ function SectorComparison({ d }) {
 
 // ── Memo Grok proactif ─────────────────────────────────────
 
-function MemoGrok({ memo, loading, error, onRetry, onGenerate }) {
+function MemoGrok({ memo, loading, error, onRetry, onGenerate, generatedAt, onRelaunch }) {
   const [anchorEl, setAnchorEl] = useState(null)
   const timerRef = useRef(null)
 
@@ -1622,42 +1743,73 @@ function MemoGrok({ memo, loading, error, onRetry, onGenerate }) {
       border: '1px solid rgba(24,195,126,0.26)',
       background: 'linear-gradient(180deg, rgba(24,195,126,0.07) 0%, rgba(24,195,126,0.02) 100%)',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{
-            fontFamily: 'var(--mono)', fontSize: '.58rem', fontWeight: 700,
-            letterSpacing: '.18em', textTransform: 'uppercase',
-            color: 'rgba(110,231,255,0.88)',
-          }}>Tomino Intelligence</span>
-          <div
-            onMouseEnter={handleEnter}
-            onMouseLeave={handleLeave}
-            style={{
-              cursor: 'pointer', color: 'rgba(255,255,255,0.25)',
-              padding: '0 2px', fontSize: '1.05rem', lineHeight: 1,
-              transition: 'color .15s', flexShrink: 0,
-            }}
-            onMouseOver={(e) => { e.currentTarget.style.color = 'var(--green)' }}
-            onMouseOut={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
-          >
-            &#9432;
-            {anchorEl && (
-              <MetricTooltip
-                label="Tomino Intelligence"
-                info={METRIC_INFO['memo_grok']}
-                metricKey="memo_grok"
-                stockData={null}
-                anchorEl={anchorEl}
-              />
-            )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              fontFamily: 'var(--mono)', fontSize: '.58rem', fontWeight: 700,
+              letterSpacing: '.18em', textTransform: 'uppercase',
+              color: 'rgba(110,231,255,0.88)',
+            }}>Tomino Intelligence</span>
+            <div
+              onMouseEnter={handleEnter}
+              onMouseLeave={handleLeave}
+              style={{
+                cursor: 'pointer', color: 'rgba(255,255,255,0.25)',
+                padding: '0 2px', fontSize: '1.05rem', lineHeight: 1,
+                transition: 'color .15s', flexShrink: 0,
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.color = 'var(--green)' }}
+              onMouseOut={(e) => { e.currentTarget.style.color = 'rgba(255,255,255,0.25)' }}
+            >
+              &#9432;
+              {anchorEl && (
+                <MetricTooltip
+                  label="Tomino Intelligence"
+                  info={METRIC_INFO['memo_grok']}
+                  metricKey="memo_grok"
+                  stockData={null}
+                  anchorEl={anchorEl}
+                />
+              )}
+            </div>
           </div>
         </div>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: 'var(--text-3)' }}>Analyse factuelle · pas un conseil</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {generatedAt && !loading && !error && (
+            <span
+              title={fmtDateTime(generatedAt)}
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: '.66rem',
+                color: 'rgba(110,231,255,0.9)',
+                whiteSpace: 'nowrap',
+                padding: '5px 10px',
+                borderRadius: 999,
+                border: '1px solid rgba(110,231,255,0.18)',
+                background: 'rgba(110,231,255,0.06)',
+                lineHeight: 1,
+              }}
+            >
+              Généré {fmtRelativeTime(generatedAt)}
+            </span>
+          )}
+          {(onRelaunch || onRetry || onGenerate) && !loading && (
+            <button
+              type="button"
+              onClick={() => (onRelaunch || onRetry || onGenerate)()}
+              className="btn btn-ghost btn-sm"
+              style={{ paddingInline: 12, whiteSpace: 'nowrap' }}
+            >
+              Relancer
+            </button>
+          )}
+        </div>
       </div>
 
       {loading && (
         <div style={{ color: 'var(--text-3)', fontSize: '.82rem', fontFamily: 'var(--mono)' }}>
-          Generation du memo en cours…
+          Génération du mémo en cours…
         </div>
       )}
       {!memo && !loading && !error && onGenerate && (
@@ -1802,16 +1954,43 @@ function HistoTooltip({ active, payload, label, unit = '' }) {
 function MiniBarChart({ data, dataKey, color, label, unit, devise }) {
   const hasData = data?.some(d => d[dataKey] != null)
   if (!hasData) return null
+  const values = data
+    .map(d => Number(d?.[dataKey]))
+    .filter(v => Number.isFinite(v))
+  const minValue = values.length ? Math.min(...values) : 0
+  const maxValue = values.length ? Math.max(...values) : 0
+  const padMax = maxValue !== 0 ? Math.abs(maxValue) * 0.12 : 1
+  const padMin = minValue !== 0 ? Math.abs(minValue) * 0.12 : 1
+  const domainMin = minValue < 0 ? minValue - padMin : 0
+  const domainMax = maxValue > 0 ? maxValue + padMax : 0
+
   return (
     <div style={{ height: 160 }}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+        <BarChart data={data} margin={{ top: 18, right: 4, left: 0, bottom: 18 }}>
           <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
-          <XAxis dataKey="annee" tick={{ fill: '#718095', fontSize: 10, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
-          <YAxis hide />
+          <XAxis dataKey="annee" height={32} tickMargin={12} tick={{ fill: '#718095', fontSize: 10, fontFamily: 'var(--mono)' }} axisLine={false} tickLine={false} />
+          <YAxis hide domain={[domainMin, domainMax]} />
           <RTooltip content={<HistoTooltip unit={unit} />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
           <Bar dataKey={dataKey} name={label} fill={color} radius={[4, 4, 0, 0]}
-            label={{ position: 'top', formatter: (v) => unit === '%' ? (v * 100).toFixed(0) + '%' : (fmtMilliard(v) ?? ''), fontSize: 9, fontFamily: 'var(--mono)', fill: '#718095' }}
+            label={(props) => {
+              const { x, y, width, height, value } = props;
+              if (value == null) return null;
+              const isNegative = value < 0;
+              const txt = unit === '%' ? (value * 100).toFixed(0) + '%' : (fmtMilliard(value) ?? '');
+              return (
+                <text 
+                  x={x + width / 2} 
+                  y={isNegative ? y + height + 12 : y - 6} 
+                  fill="#718095" 
+                  fontSize={9} 
+                  fontFamily="var(--mono)" 
+                  textAnchor="middle"
+                >
+                  {txt}
+                </text>
+              );
+            }}
           />
         </BarChart>
       </ResponsiveContainer>
@@ -1839,7 +2018,10 @@ function MargesChart({ data }) {
   )
 }
 
-function SectionHistorique({ history, loading }) {
+function SectionHistorique({ history, loading, currentData }) {
+  const hasTtmFcf = Number.isFinite(Number(currentData?.fcf_ttm))
+  const [fcfView, setFcfView] = useState(hasTtmFcf ? 'ttm' : 'annual')
+
   if (loading) {
     return (
       <div className="card fade-up" style={{ marginBottom: 20 }}>
@@ -1861,6 +2043,13 @@ function SectionHistorique({ history, loading }) {
     marge_operationnelle: history.marge_operationnelle?.[i],
     marge_brute: history.marge_brute?.[i],
   }))
+  const fcfChartData = fcfView === 'ttm' && hasTtmFcf && chartData.length
+    ? chartData.map((pt, index) => (
+      index === chartData.length - 1
+        ? { ...pt, annee: 'TTM', fcf: currentData.fcf_ttm }
+        : pt
+    ))
+    : chartData
 
   return (
     <div className="card fade-up" style={{ marginBottom: 20 }}>
@@ -1879,7 +2068,37 @@ function SectionHistorique({ history, loading }) {
         </div>
         <div>
           <div style={{ fontSize: '.72rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', marginBottom: 6 }}>Free Cash Flow</div>
-          <MiniBarChart data={chartData} dataKey="fcf" color="rgba(246,173,85,0.8)" label="FCF" />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+            <div style={{ fontSize: '.65rem', color: 'var(--text-3)', fontFamily: 'var(--mono)', letterSpacing: '.12em', textTransform: 'uppercase' }}>
+              {fcfView === 'ttm' ? 'Dernière barre en TTM' : 'Série annuelle'}
+            </div>
+            {hasTtmFcf && (
+              <div style={{ display: 'inline-flex', gap: 6, padding: 3, borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)' }}>
+                {['annual', 'ttm'].map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setFcfView(mode)}
+                    style={{
+                      border: 'none',
+                      background: fcfView === mode ? 'rgba(24,195,126,0.16)' : 'transparent',
+                      color: fcfView === mode ? 'var(--text)' : 'var(--text-2)',
+                      fontFamily: 'var(--mono)',
+                      fontSize: '.65rem',
+                      letterSpacing: '.08em',
+                      textTransform: 'uppercase',
+                      padding: '5px 10px',
+                      borderRadius: 999,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {mode === 'annual' ? 'Annuel' : 'TTM'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <MiniBarChart data={fcfChartData} dataKey="fcf" color="rgba(246,173,85,0.8)" label={fcfView === 'ttm' ? 'FCF TTM' : 'FCF'} />
         </div>
         {chartData.some(pt => pt.pe != null) && (
           <div>
@@ -2088,6 +2307,10 @@ export default function StockAnalyse() {
     const ticker = _store.currentTicker
     return ticker && _store.memosCache[ticker] ? _store.memosCache[ticker] : null
   })
+  const [memoGeneratedAt, setMemoGeneratedAt] = useState(() => {
+    const ticker = _store.currentTicker
+    return ticker && _store.memoMeta[ticker] ? _store.memoMeta[ticker] : null
+  })
   const [memoLoading, setMemoLoading] = useState(false)
   const [memoError, setMemoError] = useState('')
   const [upcomingEvents, setUpcomingEvents] = useState([])
@@ -2159,11 +2382,11 @@ export default function StockAnalyse() {
             cours: json.cours ?? prev.cours,
             variation_jour: json.variation_jour ?? prev.variation_jour,
             cours_52w_haut: json.cours_52w_haut ?? prev.cours_52w_haut,
-            cours_52w_bas:  json.cours_52w_bas  ?? prev.cours_52w_bas,
+            cours_52w_bas: json.cours_52w_bas ?? prev.cours_52w_bas,
           }
         })
         setLastPriceUpdate(new Date())
-      } catch {}
+      } catch { }
     }
     const id = setInterval(poll, 30000)
     return () => clearInterval(id)
@@ -2186,6 +2409,7 @@ export default function StockAnalyse() {
   async function loadMemo(stockData, historyData) {
     if (!stockData || stockData.source_limitee) return
     setMemo(null)
+    setMemoGeneratedAt(null)
     setMemoError('')
     setMemoLoading(true)
     const controller = new AbortController()
@@ -2197,11 +2421,20 @@ export default function StockAnalyse() {
         body: JSON.stringify({ stock_data: stockData, history_data: historyData || null }),
         signal: controller.signal,
       })
-      const json = await res.json()
+      const raw = await res.text()
+      let json = null
+      try {
+        json = raw ? JSON.parse(raw) : null
+      } catch {
+        throw new Error(`Réponse invalide du serveur (${res.status})`)
+      }
       if (!json.ok) throw new Error(json.erreur || 'Erreur Grok')
       setMemo(json.memo)
+      const generatedAt = json.generated_at || new Date().toISOString()
+      setMemoGeneratedAt(generatedAt)
       _store.memosCache[stockData.ticker] = json.memo
-      _lsSave({ memosCache: _store.memosCache })
+      _store.memoMeta[stockData.ticker] = generatedAt
+      _lsSave({ memosCache: _store.memosCache, memoMeta: _store.memoMeta })
     } catch (e) {
       if (e?.name === 'AbortError') setMemoError('Délai dépassé — réessayez.')
       else setMemoError(e?.message || 'Erreur lors de la generation du memo')
@@ -2251,6 +2484,7 @@ export default function StockAnalyse() {
       setMemoError('')
       // Restaurer le memo en cache pour ce ticker, sinon null
       setMemo(_store.memosCache[t] || null)
+      setMemoGeneratedAt(_store.memoMeta[t] || null)
     }
     setLoading(true)
     loadHistory(t)
@@ -2269,6 +2503,7 @@ export default function StockAnalyse() {
       // En mode manuel, on ne lance jamais de génération automatique.
       if (_store.memosCache[t] && !force) {
         setMemo(_store.memosCache[t])
+        setMemoGeneratedAt(_store.memoMeta[t] || null)
       }
     } catch (e) {
       if (e?.name === 'AbortError') setError('Délai dépassé — réessayez.')
@@ -2602,10 +2837,12 @@ export default function StockAnalyse() {
               error={memoError}
               onRetry={() => loadMemo(data, history)}
               onGenerate={() => loadMemo(data, history)}
+              onRelaunch={() => loadMemo(data, history)}
+              generatedAt={memoGeneratedAt}
             />
           )}
 
-          <SectionHistorique history={history} loading={historyLoading} />
+          <SectionHistorique history={history} loading={historyLoading} currentData={d} />
 
           {!d.source_limitee && (
             <>
@@ -2653,8 +2890,8 @@ export default function StockAnalyse() {
                         value={recoLabel[d.recommandation] || d.recommandation || '—'}
                         color={
                           d.recommandation?.includes('buy') ? 'var(--green)' :
-                          d.recommandation?.includes('sell') ? 'var(--red)' :
-                          'var(--text)'
+                            d.recommandation?.includes('sell') ? 'var(--red)' :
+                              'var(--text)'
                         }
                         infoKey="recommandation" stockData={d}
                       />
@@ -2795,7 +3032,7 @@ export default function StockAnalyse() {
         </>
       )}
 
-      {d && <FloatingChat stockData={d} historyData={history} investmentScore={scoreForChat} open={chatOpen} onToggle={() => setChatOpen(v => !v)} ticker={ticker} />}
+      {d && <FloatingChat stockData={d} historyData={history} investmentScore={scoreForChat} upcomingEvents={upcomingEvents} open={chatOpen} onToggle={() => setChatOpen(v => !v)} ticker={ticker} />}
     </section>
   )
 }

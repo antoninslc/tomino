@@ -330,6 +330,8 @@ a {
 	flex: 1;
 	width: 100%;
 	max-width: 1440px;
+	position: relative;
+	z-index: 1;
 }
 
 .content-chat {
@@ -883,11 +885,12 @@ a {
 
 .card-label {
 	font-family: var(--mono);
-	font-size: 0.62rem;
-	color: var(--text-3);
-	letter-spacing: 0.16em;
+	font-size: 0.76rem;
+	font-weight: 700;
+	color: var(--text-2);
+	letter-spacing: 0.14em;
 	text-transform: uppercase;
-	margin-bottom: 18px;
+	margin-bottom: 20px;
 }
 
 .stat {

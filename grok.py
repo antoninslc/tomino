@@ -8,7 +8,10 @@ Niveaux de prompt (tier) :
 """
 
 import json
+import html as _html
 import os
+import re
+from urllib.parse import quote_plus, urlparse
 
 import requests
 from dotenv import load_dotenv
@@ -40,24 +43,192 @@ _SEARCH_TOOL = {
 
 
 def _search_ddg(query: str, max_results: int = 4) -> str:
-    """Fallback DuckDuckGo Instant Answer — sans clé API."""
+    """Fallback DuckDuckGo HTML Search — renvoie de vrais extraits de pages."""
+    results = _ddg_search_results(query, max_results=max_results)
+    if not results:
+        return "Aucun résultat pertinent trouvé pour cette requête sur le web."
+    parts = []
+    for r in results:
+        parts.append(f"- Titre: {r['title']}\n  URL: {r['url']}\n  Extrait: {r['snippet']}")
+    return "\n\n".join(parts)
+
+
+def _ddg_search_results(query: str, max_results: int = 5) -> list[dict]:
+    """Retourne des résultats DuckDuckGo HTML (titre, url, snippet)."""
     try:
         r = requests.get(
-            "https://api.duckduckgo.com/",
-            params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
             headers={"User-Agent": "Tomino/1.0 (finance assistant)"},
-            timeout=8,
+            timeout=12,
         )
-        d = r.json()
-        parts = []
-        if d.get("AbstractText"):
-            parts.append(d["AbstractText"])
-        for topic in (d.get("RelatedTopics") or [])[:max_results]:
-            if isinstance(topic, dict) and topic.get("Text"):
-                parts.append(f"- {topic['Text']}")
-        return "\n".join(parts) if parts else "Aucun résultat pertinent trouvé pour cette requête."
-    except Exception as e:
-        return f"Recherche indisponible : {e}"
+        text = r.text or ""
+    except Exception:
+        return []
+
+    results = []
+    pattern = re.compile(
+        r'<a[^>]+class="result__a"[^>]+href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>.*?'
+        r'(?:<a[^>]+class="result__snippet"[^>]*>(?P<snippet>.*?)</a>|<div[^>]+class="result__snippet"[^>]*>(?P<snippet2>.*?)</div>)',
+        re.S,
+    )
+    for match in pattern.finditer(text):
+        href = _html.unescape(match.group("href") or "")
+        title = re.sub(r"<.*?>", "", _html.unescape(match.group("title") or "")).strip()
+        snippet = _html.unescape(match.group("snippet") or match.group("snippet2") or "")
+        snippet = re.sub(r"<.*?>", "", snippet).strip()
+        if href and title:
+            results.append({"title": title, "url": href, "snippet": snippet})
+        if len(results) >= max_results:
+            break
+    return results
+
+
+def _fetch_page_excerpt(url: str, max_chars: int = 2500) -> str:
+    """Télécharge une page publique et en extrait un texte brut court."""
+    try:
+        r = requests.get(
+            url,
+            headers={"User-Agent": "Tomino/1.0 (finance assistant)"},
+            timeout=12,
+        )
+        if not r.ok:
+            return ""
+        text = r.text or ""
+        text = re.sub(r"(?is)<(script|style|noscript).*?>.*?</\1>", " ", text)
+        text = re.sub(r"(?s)<[^>]+>", " ", text)
+        text = _html.unescape(text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:max_chars]
+    except Exception:
+        return ""
+
+
+def _extract_sentence_hits(text: str, keywords: tuple[str, ...], limit: int = 8) -> list[str]:
+    """Extrait quelques phrases contenant les mots-clés demandés."""
+    if not text:
+        return []
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    hits = []
+    lowered_keywords = tuple(k.lower() for k in keywords)
+    for sent in sentences:
+        sent_clean = sent.strip()
+        if len(sent_clean) < 30:
+            continue
+        sent_lower = sent_clean.lower()
+        if any(k in sent_lower for k in lowered_keywords):
+            hits.append(sent_clean)
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+def _prefetch_earnings_release_context(stock_data: dict, reference_date: str | None, historique_messages: list | None = None, upcoming_events: list | None = None) -> str:
+    """Cherche un communiqué officiel de résultats quand la question porte sur les earnings du jour."""
+    if not isinstance(stock_data, dict):
+        return ""
+
+    ticker = str(stock_data.get("ticker") or "").strip().upper()
+    nom = str(stock_data.get("nom") or ticker or "").strip()
+    if not ticker and not nom:
+        return ""
+
+    last_user = ""
+    if isinstance(historique_messages, list):
+        for msg in reversed(historique_messages):
+            if not isinstance(msg, dict):
+                continue
+            if str(msg.get("role") or "").strip() == "user":
+                last_user = str(msg.get("content") or "").strip()
+                break
+
+    question = f"{last_user} {nom} {ticker}".lower()
+    mentions_earnings = any(term in question for term in (
+        "earnings", "results", "resultats", "résultats", "publication", "publi", "communiqué", "press release", "report", "q1", "q2", "q3", "q4",
+    ))
+
+    today_event = False
+    if isinstance(upcoming_events, list):
+        for ev in upcoming_events:
+            if not isinstance(ev, dict):
+                continue
+            if str(ev.get("type_evenement") or "").strip().lower() != "resultats":
+                continue
+            if reference_date and str(ev.get("date_evenement") or "").strip() == reference_date:
+                today_event = True
+                break
+
+    if not (mentions_earnings or today_event):
+        return ""
+
+    query_base = f'{nom} {ticker} earnings results {reference_date or "today"} press release'
+    queries = [
+        query_base,
+        f'{nom} {ticker} investor relations results {reference_date or "today"}',
+        f'{nom} {ticker} communiqué résultats {reference_date or "aujourd\'hui"}',
+    ]
+
+    candidates: list[dict] = []
+    seen_urls: set[str] = set()
+    for query in queries:
+        for res in _ddg_search_results(query, max_results=6):
+            url = str(res.get("url") or "").strip()
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            candidates.append(res)
+        if len(candidates) >= 6:
+            break
+
+    if not candidates:
+        return ""
+
+    def _score(res: dict) -> int:
+        url = str(res.get("url") or "").lower()
+        title = str(res.get("title") or "").lower()
+        snippet = str(res.get("snippet") or "").lower()
+        score = 0
+        if "investor" in url or "investor" in title:
+            score += 4
+        if "press" in url or "press" in title or "release" in url or "release" in title:
+            score += 3
+        if "news" in url or "newsroom" in url or "media" in url:
+            score += 2
+        if ticker.lower() in url or ticker.lower() in title or ticker.lower() in snippet:
+            score += 2
+        if "airbus" in url or "airbus" in title or "airbus" in snippet:
+            score += 1
+        return score
+
+    candidates.sort(key=_score, reverse=True)
+    best = candidates[:2]
+
+    pieces = ["COMMUNIQUÉ OFFICIEL / RECHERCHE PRÉCHARGÉE"]
+    for res in best:
+        url = str(res.get("url") or "")
+        title = str(res.get("title") or "")
+        snippet = str(res.get("snippet") or "")
+        excerpt = _fetch_page_excerpt(url)
+        hits = _extract_sentence_hits(
+            excerpt,
+            keywords=("revenue", "revenues", "turnover", "ebit", "ebit adjusted", "net income", "eps", "earnings", "guidance", "marge", "cash flow", "orders", "deliveries"),
+        )
+        pieces.append(f"- Titre: {title}")
+        pieces.append(f"  URL: {url}")
+        if snippet:
+            pieces.append(f"  Snippet recherche: {snippet[:300]}")
+        if hits:
+            pieces.append("  Extraits utiles:")
+            pieces.extend(f"    • {h[:350]}" for h in hits[:4])
+        elif excerpt:
+            pieces.append(f"  Extrait page: {excerpt[:600]}")
+        pieces.append("")
+
+    pieces.append(
+        "Instruction: si ce bloc contient un communiqué officiel pertinent, cite ses chiffres avant toute estimation de calendrier. "
+        "Si plusieurs sources se contredisent, donne priorité à la source officielle de l'entreprise."
+    )
+    return "\n".join(pieces).strip()
 
 
 def _apply_tool_calls(messages: list, tool_call_acc: dict) -> bool:
@@ -587,7 +758,8 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
     profil = db.get_profil()
     prompt_systeme = _construire_prompt_chat(resume, profil, actifs=actifs, tier=tier)
 
-    messages = [{"role": "system", "content": prompt_systeme}]
+    # Convertir en format Responses API
+    input_messages = []
     for m in historique_messages:
         if not isinstance(m, dict):
             continue
@@ -595,98 +767,76 @@ def chat_stream(historique_messages: list, resume: dict, actifs: list | None = N
         content = (m.get("content") or "").strip()
         if role not in ("user", "assistant") or not content:
             continue
-        messages.append({"role": role, "content": content})
+        input_messages.append({"role": role, "content": content})
 
-    if len(messages) == 1:
+    if not input_messages:
         yield "[ERREUR] Aucun message utilisateur à traiter."
         return
 
     usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
     req_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    if conv_id:
-        req_headers["x-grok-conv-id"] = conv_id
+    _RESPONSES_URL = "https://api.x.ai/v1/responses"
 
     try:
-        for iteration in range(_MAX_CONTINUATIONS + 4):  # +4 pour les iterations tool_calls
-            payload = {
-                "model": _MODEL,
-                "messages": messages,
-                "temperature": 0.65,
-                "max_tokens": max_tokens,
-                "stream": True,
-                "stream_options": {"include_usage": True},
-                "tools": [_SEARCH_TOOL],
-                "tool_choice": "auto",
-            }
+        payload = {
+            "model": _MODEL,
+            "instructions": prompt_systeme,
+            "input": input_messages,
+            "max_output_tokens": max_tokens,
+            "stream": True,
+            "tools": [{"type": "web_search"}],
+        }
 
-            chunk_parts = []
-            finish_reason = ""
-            tool_call_acc: dict = {}
-
-            with requests.post(_API_URL, headers=req_headers, json=payload, timeout=60, stream=True) as r:
-                r.raise_for_status()
-                for raw_line in r.iter_lines(decode_unicode=False):
-                    if not raw_line:
-                        continue
-                    line = raw_line.decode("utf-8", errors="replace").strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        evt = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-                    if evt.get("usage") and not evt.get("choices"):
-                        u = evt["usage"]
-                        usage_total["prompt_tokens"] += int(u.get("prompt_tokens") or 0)
-                        usage_total["completion_tokens"] += int(u.get("completion_tokens") or 0)
-                        usage_total["cached_tokens"] += int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
-                        continue
-                    choices = evt.get("choices") or []
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    delta = choice.get("delta") or {}
-                    if delta.get("content"):
-                        text = str(delta["content"])
-                        chunk_parts.append(text)
-                        yield text
-                    for tc in (delta.get("tool_calls") or []):
-                        _accumulate_tool_call(tool_call_acc, tc)
-                    fr = choice.get("finish_reason")
-                    if fr:
-                        finish_reason = str(fr)
-
-            chunk = "".join(chunk_parts).strip()
-
-            if finish_reason == "tool_calls":
-                _apply_tool_calls(messages, tool_call_acc)
-                continue  # Relancer pour obtenir la réponse finale
-
-            if finish_reason == "length" and chunk:
-                if iteration >= _MAX_CONTINUATIONS:
-                    yield "\n\n[Réponse tronquée]"
+        with requests.post(_RESPONSES_URL, headers=req_headers, json=payload, timeout=90, stream=True) as r:
+            r.raise_for_status()
+            for raw_line in r.iter_lines(decode_unicode=False):
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
                     break
-                messages.append({"role": "assistant", "content": chunk})
-                messages.append({"role": "user", "content": "Continue exactement où tu t'es arrêté, sans répéter ce qui précède. Termine proprement ta réponse."})
-                continue
+                try:
+                    evt = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
 
-            break  # finish_reason == "stop" ou autre → terminé
+                evt_type = evt.get("type", "")
+
+                if evt_type == "response.completed":
+                    usage = (evt.get("response") or {}).get("usage") or {}
+                    usage_total["prompt_tokens"] = int(usage.get("input_tokens") or 0)
+                    usage_total["completion_tokens"] = int(usage.get("output_tokens") or 0)
+                    continue
+
+                if evt_type in ("response.web_search_call.in_progress", "response.web_search_call.searching"):
+                    query = (evt.get("web_search_call") or {}).get("query") or ""
+                    yield {"__status__": "searching", "query": query}
+                    continue
+
+                if evt_type == "response.web_search_call.completed":
+                    yield {"__status__": "done_searching"}
+                    continue
+
+                if evt_type == "response.output_text.delta":
+                    text = str(evt.get("delta") or "")
+                    if text:
+                        yield text
 
     except requests.exceptions.HTTPError as exc:
         r_ref = exc.response
-        code = r_ref.status_code if r_ref is not None else '?'
-        body = r_ref.text[:300] if r_ref is not None else ''
+        code = r_ref.status_code if r_ref is not None else "?"
+        body = r_ref.text[:300] if r_ref is not None else ""
         yield f"[ERREUR] Réponse HTTP {code} de l'API xAI : {body}"
     except requests.exceptions.RequestException as e:
         yield f"[ERREUR] Impossible de joindre l'API xAI : {e}"
     except Exception as e:
         yield f"[ERREUR] Flux inattendu de l'API : {e}"
 
-    # Sentinel final avec les vrais compteurs de tokens
     yield {"__usage__": usage_total}
+
 
 
 def stock_chat_stream(
@@ -694,6 +844,8 @@ def stock_chat_stream(
     stock_data: dict,
     history_data: dict | None = None,
     investment_score: dict | None = None,
+    upcoming_events: list | None = None,
+    reference_date: str | None = None,
     tier: str = "free",
     conv_id: str | None = None,
 ):
@@ -814,6 +966,72 @@ def stock_chat_stream(
             if lignes_hist:
                 history_block = "\n\nHISTORIQUE FINANCIER (5 ans)\n" + "\n".join(lignes_hist)
 
+    def _event_label(date_evenement: str, typ: str) -> str:
+        if reference_date and date_evenement == reference_date and typ == "resultats":
+            return "publié aujourd'hui"
+        if reference_date and date_evenement == reference_date:
+            return "aujourd'hui"
+        return "à venir" if date_evenement and reference_date and date_evenement > reference_date else "historique"
+
+    events_block = ""
+    event_lines = []
+    if isinstance(upcoming_events, list) and upcoming_events:
+        for ev in upcoming_events[:8]:
+            if not isinstance(ev, dict):
+                continue
+            typ = str(ev.get("type_evenement") or "").strip().lower()
+            date_evenement = str(ev.get("date_evenement") or "").strip()
+            date_secondaire = str(ev.get("date_secondaire") or "").strip()
+            nom_event = str(ev.get("nom") or ticker or "N/D").strip()
+            if typ == "resultats":
+                eps_estime = ev.get("eps_estime")
+                eps_bas = ev.get("eps_bas")
+                eps_haut = ev.get("eps_haut")
+                statut = _event_label(date_evenement, typ)
+                event_lines.append(
+                    f"- RÉSULTATS: {nom_event} | publication {date_evenement or 'N/D'} ({statut})"
+                    + (f" | fenêtre {date_secondaire}" if date_secondaire else "")
+                    + (f" | EPS estimé {eps_estime}" if eps_estime is not None else "")
+                    + (f" | fourchette {eps_bas}–{eps_haut}" if eps_bas is not None or eps_haut is not None else "")
+                )
+            elif typ == "dividendes":
+                statut = _event_label(date_evenement, typ)
+                event_lines.append(
+                    f"- DIVIDENDE: {nom_event} | ex-date {date_evenement or 'N/D'} ({statut})"
+                    + (f" | paiement {date_secondaire}" if date_secondaire else "")
+                    + (f" | montant/action {ev.get('dividende_action')}" if ev.get('dividende_action') is not None else "")
+                )
+    if event_lines:
+        events_block = "\n\nÉVÉNEMENTS RÉCENTS / À VENIR\n" + "\n".join(event_lines)
+
+    earnings_recent_block = ""
+    if isinstance(history_data, dict) and isinstance(history_data.get("earnings_surprise"), list) and history_data.get("earnings_surprise"):
+        lines = []
+        for q in history_data.get("earnings_surprise", [])[:5]:
+            if not isinstance(q, dict):
+                continue
+            lines.append(
+                f"- {q.get('date') or 'N/D'} | EPS estimé {q.get('eps_estimate') if q.get('eps_estimate') is not None else 'N/D'} | EPS réel {q.get('eps_actual') if q.get('eps_actual') is not None else 'N/D'}"
+            )
+        if lines:
+            earnings_recent_block = "\n\nDERNIERS RÉSULTATS / EARNINGS DISPONIBLES\n" + "\n".join(lines)
+
+    reference_block = ""
+    if reference_date:
+        reference_block = (
+            "\n\nDATE DE RÉFÉRENCE\n"
+            f"Aujourd'hui = {reference_date} (timezone Paris). "
+            "Si un événement de résultats a exactement cette date, traite-le comme 'publié aujourd'hui'. "
+            "Si la date est postérieure, traite-le comme 'à venir'."
+        )
+
+    release_block = _prefetch_earnings_release_context(
+        stock_data,
+        reference_date,
+        historique_messages=historique_messages,
+        upcoming_events=upcoming_events,
+    )
+
     context = f"""Tu es un assistant d'analyse boursière intégré à Tomino, application de gestion de patrimoine.
 Tu analyses l'action suivante et tu réponds aux questions de l'utilisateur à son sujet.
 Ton : {"décontracté mais précis" if ton == "informel" else "professionnel et rigoureux"}.
@@ -856,6 +1074,20 @@ DESCRIPTION ENTREPRISE
 
 {history_block}
 
+{earnings_recent_block}
+
+{events_block}
+
+{reference_block}
+
+{release_block}
+
+RÈGLE SPÉCIALE EARNINGS / PUBLICATION DU JOUR
+Si un événement de résultats est marqué "publié aujourd'hui" ou si l'utilisateur demande les earnings d'aujourd'hui, tu dois d'abord utiliser l'outil de recherche pour retrouver le communiqué officiel, la présentation résultats ou la page investisseurs de l'entreprise.
+Dans ta réponse, indique en priorité les chiffres réellement publiés si tu les trouves (CA, résultat opérationnel, marge, EPS, guidance, date/heure de publication, source officielle).
+Ne te contente pas de l'estimation du calendrier si une publication officielle est accessible.
+Si la recherche ne donne pas le communiqué officiel, dis-le explicitement et limite-toi aux données de calendrier disponibles.
+
 {score_block}
 
 CONTRÔLE DE COHÉRENCE (valeurs aberrantes)
@@ -865,9 +1097,10 @@ Si des valeurs semblent aberrantes, explicite pourquoi, propose une interprétat
 
 Règle de réponse : sois bref et direct, comme dans un message à un collègue. 2 à 4 phrases maximum par défaut — sauf si l'utilisateur dit explicitement "développe" ou "explique en détail". Pas d'introduction, pas de reformulation de la question. Va droit au fait.
 Si l'utilisateur demande une opinion d'investissement, rappelle en une phrase que tu n'es pas conseiller financier.
-"""
+FORMATAGE : N'utilise jamais de numéros de citations entre crochets comme [1] ou [2][3]. Si tu veux mentionner une source, intègre-la naturellement dans le texte (ex: "selon le communiqué Airbus"). Utilise uniquement du Markdown simple : gras (**texte**), listes à puces (-), titres de section si pertinent (##). Aucun bloc de code, aucun tableau sauf demande explicite. N'utilise jamais d'emojis."""
 
-    messages = [{"role": "system", "content": context}]
+    # Convertir en format Responses API : instructions système + messages historique
+    input_messages = []
     for m in historique_messages:
         if not isinstance(m, dict):
             continue
@@ -875,87 +1108,79 @@ Si l'utilisateur demande une opinion d'investissement, rappelle en une phrase qu
         content = (m.get("content") or "").strip()
         if role not in ("user", "assistant") or not content:
             continue
-        messages.append({"role": role, "content": content})
+        input_messages.append({"role": role, "content": content})
 
-    if len(messages) == 1:
+    if not input_messages:
         yield "[ERREUR] Aucun message à traiter."
         return
 
     req_headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    if conv_id:
-        req_headers["x-grok-conv-id"] = conv_id
     usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
+    _RESPONSES_URL = "https://api.x.ai/v1/responses"
 
     try:
-        for iteration in range(_MAX_CONTINUATIONS + 4):
-            payload = {
-                "model": _MODEL,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "stream": True,
-                "stream_options": {"include_usage": True},
-                "tools": [_SEARCH_TOOL],
-                "tool_choice": "auto",
-            }
-            r = requests.post(_API_URL, json=payload, headers=req_headers, stream=True, timeout=60)
+        payload = {
+            "model": _MODEL,
+            "instructions": context,
+            "input": input_messages,
+            "max_output_tokens": max_tokens,
+            "stream": True,
+            "tools": [{"type": "web_search"}],
+        }
+
+        with requests.post(_RESPONSES_URL, json=payload, headers=req_headers, stream=True, timeout=90) as r:
             r.raise_for_status()
-            chunk_parts = []
-            finish = None
-            tool_call_acc: dict = {}
-            for line in r.iter_lines():
-                if not line:
+            for raw_line in r.iter_lines(decode_unicode=False):
+                if not raw_line:
                     continue
-                text = line.decode("utf-8") if isinstance(line, bytes) else line
-                if not text.startswith("data:"):
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
                     continue
-                raw = text[5:].strip()
-                if raw == "[DONE]":
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
                     break
                 try:
-                    evt = json.loads(raw)
-                except Exception:
+                    evt = json.loads(data_str)
+                except json.JSONDecodeError:
                     continue
-                if evt.get("usage") and not evt.get("choices"):
-                    u = evt["usage"]
-                    usage_total["prompt_tokens"] += int(u.get("prompt_tokens") or 0)
-                    usage_total["completion_tokens"] += int(u.get("completion_tokens") or 0)
-                    usage_total["cached_tokens"] += int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+
+                evt_type = evt.get("type", "")
+
+                # Comptage des tokens en fin de réponse
+                if evt_type == "response.completed":
+                    usage = (evt.get("response") or {}).get("usage") or {}
+                    usage_total["prompt_tokens"] = int(usage.get("input_tokens") or 0)
+                    usage_total["completion_tokens"] = int(usage.get("output_tokens") or 0)
                     continue
-                choices = evt.get("choices") or []
-                if not choices:
+
+                # Statuts de recherche web — transmis au frontend pour l'UI
+                if evt_type in ("response.web_search_call.in_progress", "response.web_search_call.searching"):
+                    query = (evt.get("web_search_call") or {}).get("query") or ""
+                    yield {"__status__": "searching", "query": query}
                     continue
-                choice = choices[0]
-                delta = choice.get("delta") or {}
-                if delta.get("content"):
-                    t = str(delta["content"])
-                    chunk_parts.append(t)
-                    yield t
-                for tc in (delta.get("tool_calls") or []):
-                    _accumulate_tool_call(tool_call_acc, tc)
-                fr = choice.get("finish_reason")
-                if fr:
-                    finish = fr
 
-            chunk = "".join(chunk_parts).strip()
+                if evt_type == "response.web_search_call.completed":
+                    yield {"__status__": "done_searching"}
+                    continue
 
-            if finish == "tool_calls":
-                _apply_tool_calls(messages, tool_call_acc)
-                continue
+                # Événements de raisonnement (modèles reasoning)
+                if evt_type == "response.reasoning.delta":
+                    thinking = str(evt.get("delta") or "")
+                    if thinking:
+                        yield {"__status__": "thinking", "thinking": thinking[:120]}
+                    continue
 
-            if finish == "length" and chunk:
-                if iteration >= _MAX_CONTINUATIONS:
-                    yield "\n\n[Réponse tronquée]"
-                    break
-                messages.append({"role": "assistant", "content": chunk})
-                messages.append({"role": "user", "content": "Continue."})
-                continue
-
-            break
+                # Chunks de texte streamés
+                if evt_type == "response.output_text.delta":
+                    text = str(evt.get("delta") or "")
+                    if text:
+                        yield text
 
     except requests.exceptions.HTTPError as exc:
         r_ref = exc.response
         code = r_ref.status_code if r_ref is not None else "?"
-        yield f"[ERREUR] HTTP {code} depuis l'API xAI."
+        body = r_ref.text[:300] if r_ref is not None else ""
+        yield f"[ERREUR] HTTP {code} depuis l'API xAI : {body}"
     except requests.exceptions.RequestException as e:
         yield f"[ERREUR] Impossible de joindre l'API xAI : {e}"
     except Exception as e:

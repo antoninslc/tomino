@@ -4547,20 +4547,24 @@ def api_stock_cours(ticker):
 
 @app.route("/api/stock/memo", methods=["POST"])
 def api_stock_memo():
-    payload = request.get_json(silent=True) or {}
-    stock_data = payload.get("stock_data", {})
-    history_data = payload.get("history_data", None)
-    if not stock_data or not stock_data.get("ticker"):
-        return jsonify({"ok": False, "erreur": "stock_data manquant"}), 400
-    if not _xai_api_key_configured():
-        return jsonify({
-            "ok": False,
-            "erreur": "Clé API xAI absente. Configurez XAI_API_KEY dans le fichier .env puis redémarrez Tomino.",
-        }), 503
-    texte, usage = grok.generer_memo_action(stock_data, history_data)
-    if texte.startswith("[ERREUR]"):
-        return jsonify({"ok": False, "erreur": texte}), 500
-    return jsonify({"ok": True, "memo": texte, "usage": usage})
+    try:
+        payload = request.get_json(silent=True) or {}
+        stock_data = payload.get("stock_data", {})
+        history_data = payload.get("history_data", None)
+        if not stock_data or not stock_data.get("ticker"):
+            return jsonify({"ok": False, "erreur": "stock_data manquant"}), 400
+        if not _xai_api_key_configured():
+            return jsonify({
+                "ok": False,
+                "erreur": "Clé API xAI absente. Configurez XAI_API_KEY dans le fichier .env puis redémarrez Tomino.",
+            }), 503
+        texte, usage = grok.generer_memo_action(stock_data, history_data)
+        if texte.startswith("[ERREUR]"):
+            return jsonify({"ok": False, "erreur": texte}), 500
+        return jsonify({"ok": True, "memo": texte, "usage": usage, "generated_at": datetime.datetime.now(PARIS_TZ).isoformat()})
+    except Exception as exc:
+        app.logger.exception("Erreur api_stock_memo: %s", exc)
+        return jsonify({"ok": False, "erreur": f"Erreur serveur lors de la génération du mémo: {exc}"}), 500
 
 
 @app.route("/api/stock/<path:ticker>")
@@ -4615,6 +4619,17 @@ def api_stock_chat_stream():
     stock_data = payload.get("stock_data", {})
     history_data = payload.get("history_data", {})
     investment_score = payload.get("investment_score", {})
+    upcoming_events = payload.get("upcoming_events", [])
+    reference_date = datetime.datetime.now(ZoneInfo("Europe/Paris")).date().isoformat()
+
+    if not upcoming_events:
+        ticker = str((stock_data or {}).get("ticker") or "").strip().upper()
+        if ticker:
+            upcoming_events = prices.get_evenements_prochains([{
+                "ticker": ticker,
+                "nom": str((stock_data or {}).get("nom") or ticker).strip() or ticker,
+                "quantite": (stock_data or {}).get("quantite", 0),
+            }])
 
     if not isinstance(messages, list):
         return jsonify({"ok": False, "erreur": "Format invalide"}), 400
@@ -4640,11 +4655,17 @@ def api_stock_chat_stream():
             stock_data,
             history_data=history_data,
             investment_score=investment_score,
+            upcoming_events=upcoming_events,
+            reference_date=reference_date,
             tier=tier,
             conv_id=conv_id,
         ):
             if isinstance(chunk, dict) and "__usage__" in chunk:
                 usage = chunk["__usage__"]
+                continue
+            if isinstance(chunk, dict) and "__status__" in chunk:
+                # Événement de statut (recherche web, raisonnement, etc.)
+                yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
                 continue
             chunks.append(chunk)
             yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"
@@ -4930,6 +4951,9 @@ def api_chat_stream():
         for chunk in grok.chat_stream(messages, resume, actifs=actifs, tier=tier, conv_id=conv_id):
             if isinstance(chunk, dict) and "__usage__" in chunk:
                 usage = chunk["__usage__"]
+                continue
+            if isinstance(chunk, dict) and "__status__" in chunk:
+                yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
                 continue
             chunks.append(chunk)
             yield "data: " + json.dumps({"delta": chunk}, ensure_ascii=False) + "\n\n"

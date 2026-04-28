@@ -64,6 +64,60 @@ function fmtConvDate(iso) {
   return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
 }
 
+function ChatThinkingBubble({ phase, searchQuery }) {
+  return (
+    <>
+      <style>{`
+        @keyframes _ctdot {
+          0%, 60%, 100% { opacity: 0.15; transform: translateY(0); }
+          30% { opacity: 0.7; transform: translateY(-3px); }
+        }
+        @keyframes _ctspin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+
+      {phase === 'searching' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span style={{
+              width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+              border: '1.5px solid rgba(24,195,126,0.25)',
+              borderTopColor: '#18c37e',
+              animation: '_ctspin 0.75s linear infinite',
+              display: 'inline-block',
+            }} />
+            <span style={{ fontFamily: 'var(--mono)', fontSize: '.72rem', color: '#18c37e', letterSpacing: '0.03em' }}>
+              web search
+            </span>
+          </div>
+          {searchQuery && (
+            <span style={{
+              fontFamily: 'var(--mono)', fontSize: '.68rem',
+              color: 'var(--text-3)', letterSpacing: '0.01em',
+              paddingLeft: 17,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block',
+            }}>
+              {searchQuery}
+            </span>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, paddingTop: 2, minHeight: 20 }}>
+          {[0, 1, 2].map(i => (
+            <span key={i} style={{
+              width: 5, height: 5, borderRadius: '50%',
+              background: 'var(--text-3)',
+              display: 'inline-block',
+              animation: `_ctdot 1.2s ease-in-out ${i * 0.18}s infinite`,
+            }} />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
 function UsageRing({ pct = 0, blocked = false, size = 18 }) {
   const clamped = Math.max(0, Math.min(100, Number(pct || 0)))
   const strokeWidth = 2
@@ -134,9 +188,12 @@ export default function Chat() {
   const [conversations, setConversations] = useState(loadConversations)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [phase, setPhase] = useState('idle')
+  const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState('')
   const [quota, setQuota] = useState(null)
   const [showQuotaTip, setShowQuotaTip] = useState(false)
+  const [hoveredConvId, setHoveredConvId] = useState(null)
   const listRef = useRef(null)
   const inputRef = useRef(null)
   const abortRef = useRef(null)
@@ -213,13 +270,10 @@ export default function Chat() {
     return marked.parse(text || '')
   }
 
-  function renderLoading() {
-    return '<div class="chat-loading-shimmer">Tomino réfléchit</div>'
-  }
-
   async function sendMessage(overrideContent) {
     const content = (overrideContent ?? input).trim()
     if (!content || sending) return
+    if (!consent) return
 
     if (quota?.blocked) {
       const msg = `Limite hebdomadaire IA atteinte. Tomino sera disponible à nouveau le ${fmtDate(quota.next_reset)}.`
@@ -232,6 +286,7 @@ export default function Chat() {
     setError('')
     setInput('')
     setSending(true)
+    setPhase('thinking')
 
     const next = [...messages, { role: 'user', content }, { role: 'assistant', content: '' }]
     setMessages(next)
@@ -257,7 +312,7 @@ export default function Chat() {
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
       let done = false
-      const timeout = setTimeout(() => abortRef.current?.abort(), 30000)
+      const timeout = setTimeout(() => abortRef.current?.abort(), 90000)
 
       while (!done) {
         const read = await reader.read()
@@ -287,8 +342,23 @@ export default function Chat() {
               continue
             }
 
+            if (typeof data.__status__ === 'string') {
+              if (data.__status__ === 'searching') {
+                setPhase('searching')
+                setSearchQuery(data.query || '')
+              } else if (data.__status__ === 'done_searching') {
+                setPhase('thinking')
+                setSearchQuery('')
+              }
+              continue
+            }
+
             if (typeof data.delta === 'string') {
-              pendingDeltaRef.current += data.delta
+              setPhase('streaming')
+              setSearchQuery('')
+              // Supprimer les citations xAI du type [1], [2][3], etc.
+              const cleanDelta = data.delta.replace(/\[\d+\](?:\[\d+\])*/g, '')
+              pendingDeltaRef.current += cleanDelta
               if (!rafRef.current) {
                 rafRef.current = requestAnimationFrame(() => {
                   const delta = pendingDeltaRef.current
@@ -339,6 +409,8 @@ export default function Chat() {
         // silent
       }
     } catch (e) {
+      setPhase('idle')
+      setSearchQuery('')
       if (e?.name === 'AbortError') {
         setMessages((prev) => {
           const copy = [...prev]
@@ -365,6 +437,8 @@ export default function Chat() {
       }
     } finally {
       setSending(false)
+      setPhase('idle')
+      setSearchQuery('')
     }
   }
 
@@ -421,6 +495,12 @@ export default function Chat() {
     setInput('')
   }
 
+  function deleteConversation(e, conversationId) {
+    e.stopPropagation()
+    setConversations((prev) => (prev || []).filter((c) => c?.id !== conversationId))
+    setHoveredConvId(null)
+  }
+
   return (
     <section>
       {!consent && (
@@ -469,13 +549,17 @@ export default function Chat() {
                   }}
                 >
                   {isUser ? (
-                    <div style={{ whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                    <div style={{ whiteSpace: 'pre-wrap', userSelect: 'text' }}>{m.content}</div>
                   ) : (
                     <>
-                      <div
-                        className={sending && idx === messages.length - 1 ? 'chat-streaming' : undefined}
-                        dangerouslySetInnerHTML={{ __html: m.content ? renderMarkdown(m.content) : sending ? renderLoading() : '' }}
-                      />
+                      {m.content ? (
+                        <div
+                          className={sending && idx === messages.length - 1 ? 'chat-streaming' : undefined}
+                          dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                        />
+                      ) : sending && idx === messages.length - 1 ? (
+                        <ChatThinkingBubble phase={phase} searchQuery={searchQuery} />
+                      ) : null}
                       {m.isError && idx === messages.length - 1 && (
                         <button
                           type="button"
@@ -512,28 +596,55 @@ export default function Chat() {
               </div>
             )}
             {historyItems.map((h) => (
-              <button
+              <div
                 key={h.id}
-                type="button"
-                onClick={() => openConversation(h.id)}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '8px 10px',
-                  marginBottom: 8,
-                  borderRadius: 12,
-                  border: '1px solid var(--line)',
-                  background: 'rgba(255,255,255,.02)',
-                  cursor: 'pointer',
-                  display: 'block',
-                }}
+                style={{ position: 'relative', marginBottom: 8 }}
+                onMouseEnter={() => setHoveredConvId(h.id)}
+                onMouseLeave={() => setHoveredConvId(null)}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)' }}>{h.title}</div>
-                  {h.date && <div style={{ fontFamily: 'var(--mono)', fontSize: '.58rem', color: 'var(--text-3)', flexShrink: 0, marginLeft: 6 }}>{h.date}</div>}
-                </div>
-                <div style={{ fontSize: '.77rem', color: 'var(--text-2)', lineHeight: 1.4 }}>{h.preview || '...'}</div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => openConversation(h.id)}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '8px 10px',
+                    borderRadius: 12,
+                    border: '1px solid var(--line)',
+                    background: hoveredConvId === h.id ? 'rgba(255,255,255,.05)' : 'rgba(255,255,255,.02)',
+                    cursor: 'pointer',
+                    display: 'block',
+                    transition: 'background .15s',
+                    paddingRight: 32,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                    <div style={{ fontFamily: 'var(--mono)', fontSize: '.62rem', color: 'var(--text-3)' }}>{h.title}</div>
+                    {h.date && <div style={{ fontFamily: 'var(--mono)', fontSize: '.58rem', color: 'var(--text-3)', flexShrink: 0, marginLeft: 6 }}>{h.date}</div>}
+                  </div>
+                  <div style={{ fontSize: '.77rem', color: 'var(--text-2)', lineHeight: 1.4 }}>{h.preview || '...'}</div>
+                </button>
+                {hoveredConvId === h.id && (
+                  <button
+                    type="button"
+                    onClick={(e) => deleteConversation(e, h.id)}
+                    title="Supprimer"
+                    style={{
+                      position: 'absolute', top: '50%', right: 8, transform: 'translateY(-50%)',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      padding: 4, borderRadius: 6, color: 'var(--text-3)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'color .15s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--red)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--text-3)'}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 15 15" fill="none">
+                      <path d="M5 1h5M2 3h11M4 3l.67 9.33A1 1 0 005.66 13h3.68a1 1 0 00.99-.67L11 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                )}
+              </div>
             ))}
           </aside>
         </div>
@@ -613,7 +724,7 @@ export default function Chat() {
               </button>
               <button
                 type="button"
-                onClick={sendMessage}
+                onClick={() => sendMessage()}
                 disabled={!canSend || quota?.blocked}
                 className="btn btn-primary"
                 style={{ minWidth: 112, height: 50, alignSelf: 'flex-end' }}
