@@ -161,11 +161,14 @@ def _prefetch_earnings_release_context(stock_data: dict, reference_date: str | N
     if not (mentions_earnings or today_event):
         return ""
 
-    query_base = f'{nom} {ticker} earnings results {reference_date or "today"} press release'
+    date_en = reference_date or "today"
+    date_fr = reference_date or "aujourd'hui"
+
+    query_base = f'{nom} {ticker} earnings results {date_en} press release'
     queries = [
         query_base,
-        f'{nom} {ticker} investor relations results {reference_date or "today"}',
-        f'{nom} {ticker} communiqué résultats {reference_date or "aujourd\'hui"}',
+        f'{nom} {ticker} investor relations results {date_en}',
+        f'{nom} {ticker} communiqué résultats {date_fr}',
     ]
 
     candidates: list[dict] = []
