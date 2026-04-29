@@ -120,7 +120,6 @@ const ICONS = {
 const ACTIFS_ITEMS = [
   { to: '/portefeuille/PEA', label: 'PEA' },
   { to: '/portefeuille/CTO', label: 'CTO' },
-  { to: '/crypto', label: 'Crypto' },
   { to: '/portefeuille/OR', label: 'Or' },
   { to: '/assurance-vie', label: 'Assurance vie' },
   { to: '/livrets', label: 'Livrets' },
@@ -201,7 +200,7 @@ function StaticGroup({ label, items }) {
 }
 
 export default function Sidebar() {
-  const [isActifsOpen, setIsActifsOpen] = useState(true)
+  const [isActifsOpen, setIsActifsOpen] = useState(false)
   const [showTominoPlusBadge, setShowTominoPlusBadge] = useState(false)
   const [triggeredAlertCount, setTriggeredAlertCount] = useState(0)
 

@@ -405,7 +405,8 @@ export default function Settings() {
         .then(m => m.getVersion().then(setAppVersion).catch(() => {}))
         .catch(() => {})
       // Lire la preference systray depuis Rust
-      window.__TAURI__.invoke('get_minimize_to_tray')
+      import('@tauri-apps/api/tauri')
+        .then(m => m.invoke('get_minimize_to_tray'))
         .then(setMinimizeToTray)
         .catch(() => {})
     } else {
@@ -418,7 +419,8 @@ export default function Settings() {
     setMinimizeToTray(next)
     if (isTauri) {
       try {
-        await window.__TAURI__.invoke('set_minimize_to_tray', { enabled: next })
+        const { invoke } = await import('@tauri-apps/api/tauri')
+        await invoke('set_minimize_to_tray', { enabled: next })
       } catch (e) {
         setMinimizeToTray(!next) // rollback
       }
